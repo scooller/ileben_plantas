@@ -1,0 +1,12 @@
+.ileben-admin .card {
+    max-width: 1200px;
+}
+
+.ileben-admin .table td,
+.ileben-admin .table th {
+    vertical-align: middle;
+}
+
+.ileben-admin .alert {
+    margin: 12px 0 16px;
+}
