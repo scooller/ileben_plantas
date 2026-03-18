@@ -4,13 +4,13 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-class Ileben_Plantas_Repository
+class Ileben_Api_Repository
 {
     private $table_name;
 
     public function __construct()
     {
-        $this->table_name = Ileben_Plantas_Plugin::get_table_name();
+        $this->table_name = Ileben_Api_Plugin::get_table_name();
     }
 
     public function find($id)
@@ -30,6 +30,40 @@ class Ileben_Plantas_Repository
             array('id' => (int) $id),
             array('%d')
         );
+    }
+
+    public function delete_all()
+    {
+        global $wpdb;
+
+        $sql = "DELETE FROM {$this->table_name}";
+        return $wpdb->query($sql);
+    }
+
+    public function delete_not_in_external_ids($external_ids)
+    {
+        global $wpdb;
+
+        if (! is_array($external_ids) || empty($external_ids)) {
+            return 0;
+        }
+
+        $clean_ids = array();
+        foreach ($external_ids as $external_id) {
+            $external_id = sanitize_text_field((string) $external_id);
+            if ($external_id !== '') {
+                $clean_ids[] = $external_id;
+            }
+        }
+
+        if (empty($clean_ids)) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($clean_ids), '%s'));
+        $sql = "DELETE FROM {$this->table_name} WHERE external_id NOT IN ({$placeholders})";
+        $prepared = $wpdb->prepare($sql, $clean_ids);
+        return $wpdb->query($prepared);
     }
 
     public function save($data)
@@ -197,20 +231,44 @@ class Ileben_Plantas_Repository
     {
         $states = array_keys($this->get_states());
 
-        $image_source = $data['foto'] ?? ($data['fotos'] ?? '');
-        $image_url = '';
-        if (! empty($image_source)) {
-            if (is_array($image_source)) {
-                $first = reset($image_source);
-                $image_url = esc_url_raw((string) $first);
-            } else {
-                $split = preg_split('/[\r\n,]+/', (string) $image_source);
-                $first = is_array($split) ? trim((string) ($split[0] ?? '')) : '';
-                $image_url = esc_url_raw($first);
+        $foto_portada = esc_url_raw((string) ($data['foto_portada'] ?? ''));
+        $foto_interior = esc_url_raw((string) ($data['foto_interior'] ?? ''));
+
+        if ($foto_portada === '' || $foto_interior === '') {
+            $image_source = $data['foto'] ?? ($data['fotos'] ?? '');
+            if (! empty($image_source)) {
+                if (is_array($image_source)) {
+                    if ($foto_portada === '') {
+                        $foto_portada = esc_url_raw((string) ($image_source[0] ?? ''));
+                    }
+                    if ($foto_interior === '') {
+                        $foto_interior = esc_url_raw((string) ($image_source[1] ?? ''));
+                    }
+                } else {
+                    $raw = trim((string) $image_source);
+                    $decoded = json_decode($raw, true);
+
+                    if (is_array($decoded)) {
+                        if ($foto_portada === '') {
+                            $foto_portada = esc_url_raw((string) ($decoded[0] ?? ''));
+                        }
+                        if ($foto_interior === '') {
+                            $foto_interior = esc_url_raw((string) ($decoded[1] ?? ''));
+                        }
+                    } else {
+                        $split = preg_split('/[\r\n,]+/', $raw);
+                        if (is_array($split)) {
+                            if ($foto_portada === '') {
+                                $foto_portada = esc_url_raw(trim((string) ($split[0] ?? '')));
+                            }
+                            if ($foto_interior === '') {
+                                $foto_interior = esc_url_raw(trim((string) ($split[1] ?? '')));
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        $fotos = $image_url !== '' ? array($image_url) : array();
         $brochure = esc_url_raw((string) ($data['brochure'] ?? $data['brochure_url'] ?? ''));
         $cotizacion_url = esc_url_raw((string) ($data['cotizacion_url'] ?? $data['cotiza_url'] ?? ''));
 
@@ -219,12 +277,21 @@ class Ileben_Plantas_Repository
             $estado = 'disponible';
         }
 
+        $precio_base = (float) ($data['precio_base'] ?? 0);
+        $precio_lista = (float) ($data['precio_lista'] ?? 0);
+        $precio = (float) ($data['precio'] ?? 0);
+        if ($precio <= 0) {
+            $precio = $precio_lista > 0 ? $precio_lista : $precio_base;
+        }
+
         return array(
             'id' => isset($data['id']) ? (int) $data['id'] : 0,
             'external_id' => sanitize_text_field($data['external_id'] ?? ''),
             'nombre' => sanitize_text_field($data['nombre'] ?? ''),
             'descripcion' => sanitize_textarea_field($data['descripcion'] ?? ''),
-            'precio' => (float) ($data['precio'] ?? 0),
+            'precio' => $precio,
+            'precio_base' => $precio_base,
+            'precio_lista' => $precio_lista,
             'banos' => max(0, (int) ($data['banos'] ?? 0)),
             'dormitorios' => max(0, (int) ($data['dormitorios'] ?? 0)),
             'metros_cuadrados' => (float) ($data['metros_cuadrados'] ?? 0),
@@ -234,7 +301,8 @@ class Ileben_Plantas_Repository
             'superficie_interior' => (float) ($data['superficie_interior'] ?? 0),
             'terraza_m2' => (float) ($data['terraza_m2'] ?? 0),
             'superficie_total' => (float) ($data['superficie_total'] ?? 0),
-            'fotos' => wp_json_encode($fotos),
+            'foto_portada' => $foto_portada,
+            'foto_interior' => $foto_interior,
             'brochure' => $brochure,
             'cotizacion_url' => $cotizacion_url,
             'estado' => $estado,
@@ -248,6 +316,8 @@ class Ileben_Plantas_Repository
             'nombre' => '%s',
             'descripcion' => '%s',
             'precio' => '%f',
+            'precio_base' => '%f',
+            'precio_lista' => '%f',
             'banos' => '%d',
             'dormitorios' => '%d',
             'metros_cuadrados' => '%f',
@@ -257,7 +327,8 @@ class Ileben_Plantas_Repository
             'superficie_interior' => '%f',
             'terraza_m2' => '%f',
             'superficie_total' => '%f',
-            'fotos' => '%s',
+            'foto_portada' => '%s',
+            'foto_interior' => '%s',
             'brochure' => '%s',
             'cotizacion_url' => '%s',
             'estado' => '%s',

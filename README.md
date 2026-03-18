@@ -2,16 +2,27 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
+## Novedades recientes
+
+- Sincronizacion por proyecto robusta: se usa el `proyecto_id` seleccionado y se conserva en todas las paginas de la API (`next_page_url`).
+- Confirmacion cuando `proyecto_id` esta vacio: se advierte que se importaran todas las plantas.
+- Depuracion por proyecto en sync: cuando hay `proyecto_id`, se eliminan registros locales fuera del proyecto sincronizado.
+- Frontend con filtros AJAX paginados: carga inicial y cambios de filtro consultan servidor; el carrusel carga mas items al llegar al final.
+- Contador visible: `Total plantas X, mostrando Y plantas` actualizado dinamicamente.
+- Imagenes desde API: portada (`cover_image_*`) e interior (`interior_image_*`) con lightbox de imagen interior al hacer click.
+- Filtro adicional por piso y orden alfabetico de opciones en los selectores.
+
 ## Caracteristicas principales
 
-- **Sincronizacion API**: Conexion con endpoint REST `/api/v1/plants` con filtrado por proyecto
+- **Sincronizacion API**: Conexion con endpoint REST `/api/v1/plantas` con filtrado por proyecto
 - **Gestion centralizada**: Tabla personalizada con 18 campos incluyendo datos de superficie, orientacion y estado
 - **Importacion CSV**: Carga masiva con upsert por `external_id` y descarga de CSV de ejemplo
-- **Frontend moderno**: Shortcode con carousel, filtros dinamicos y panel de detalles
-- **Cotizacion flexible**: Boton "Cotizar" por planta con fallback global desde `.env`
+- **Frontend moderno**: Shortcode con carousel, filtros dinamicos (tipologia/piso/planta), panel de detalles y lightbox
+- **Cotizacion flexible**: Boton "Cotizar" por planta con fallback global desde configuracion del plugin
 - **Media Library**: Integracion nativa con biblioteca multimedia de WordPress para imagenes y brochures
-- **CRON automatico**: Sincronizacion horaria opcional configurable via `.env`
+- **CRON automatico**: Sincronizacion horaria opcional configurable desde el admin del plugin
 - **Multi-proyecto**: Soporte para filtrar y sincronizar plantas de proyectos especificos
+- **Paginacion incremental**: Al llegar al final del carrusel se cargan los siguientes bloques por AJAX
 
 ## Tecnologias
 
@@ -36,7 +47,8 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 	- superficie_interior
 	- terraza_m2
 	- superficie_total
-	- fotos (JSON de URLs)
+  - foto_portada
+  - foto_interior
 	- brochure
   - cotizacion_url
 	- estado (disponible / no_disponible)
@@ -45,15 +57,16 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 	- crear/editar/eliminar
 	- importacion CSV con upsert por external_id y CSV de ejemplo descargable
 	- sincronizacion manual con API externa
-	- configuracion de API y cron desde archivo .env
+  - configuracion de API, Bearer Token y cron desde el admin del plugin
 	- imagen unica por planta usando la biblioteca multimedia de WordPress
 	- brochure opcional por planta (archivo descargable)
-  - URL de cotizacion opcional por planta (fallback a COTIZA_URL de `.env`)
+  - URL de cotizacion opcional por planta (fallback a URL Cotizar por defecto del plugin)
 - Shortcode frontend con Bootstrap:
 	- [ileben_plantas]
 	- layout tipo ficha de tipologia (como cotizador)
-	- filtros por tipologia y planta
-	- carrusel de plantas con panel de datos y boton de brochure
+  - filtros por tipologia, piso y planta
+  - carrusel de plantas con panel de datos, contador "mostrando X" y carga incremental por AJAX
+  - lightbox de imagen interior al hacer click en imagen principal
 
 ## Estructura
 
@@ -80,35 +93,32 @@ Menu: `Plantas`
 - `Importar CSV`: cargar archivo CSV
 - `Sincronizar API`: importar desde endpoint configurado
 
-## Configuracion API (.env)
+## Configuracion API (Admin del plugin)
 
-El plugin lee toda la configuracion desde el archivo `.env` en la raiz del plugin:
+La configuracion se realiza desde WordPress en:
 
-```env
-ENDPOINT_API=http://127.0.0.1:8000/api/v1/plants
-PROYECTO_ID=29
-ENDPOINT_TOKEN=
-COTIZA_URL=https://tu-cotizador.com/proyecto-x
-TIMEOUT=30
-CRON=true
-```
+`Plantas > Sincronizar API`
 
-### Variables de configuracion:
+Campos disponibles:
+
+### Ajustes de configuracion:
 
 | Variable | Obligatorio | Descripcion | Ejemplo |
 |----------|-------------|-------------|---------|
-| `ENDPOINT_API` | Sí | URL completa del endpoint de la API | `http://127.0.0.1:8000/api/v1/plants` |
-| `PROYECTO_ID` | No | ID del proyecto a filtrar. Si se configura, solo sincroniza plantas de ese proyecto | `29` |
-| `ENDPOINT_TOKEN` | No | Token de autorizacion Bearer (API publica no lo requiere) | `tu-token-secret` |
-| `COTIZA_URL` | No | URL global del boton Cotizar cuando la planta no tiene `cotizacion_url` propia | `https://...` |
-| `TIMEOUT` | No | Timeout de peticiones HTTP en segundos (min: 5, max: 120) | `30` |
-| `CRON` | No | Sincronizacion automatica horaria (`true`/`1`/`yes`/`on` para activar) | `true` |
+| `Endpoint API` | Sí | URL base de la API (sin /plantas) | `http://127.0.0.1:8000/api/v1` |
+| `Proyecto ID` | No | ID del proyecto a filtrar. Si se configura, solo sincroniza plantas de ese proyecto | `29` |
+| `Bearer Token` | No | Token de autorizacion. Se envia como `Authorization: Bearer <token>` | `tu-token-secret` |
+| `URL Cotizar por defecto` | No | URL global del boton Cotizar cuando la planta no tiene `cotizacion_url` propia | `https://...` |
+| `Timeout` | No | Timeout de peticiones HTTP en segundos (min: 5, max: 120) | `30` |
+| `Sincronizacion horaria (CRON)` | No | Activa sincronizacion automatica por hora | `Activado` |
 
 ### Filtrado por proyecto:
 
-Cuando se configura `PROYECTO_ID`, el plugin construye la URL automaticamente:
-- Sin filtro: `http://127.0.0.1:8000/api/v1/plants` (todas las plantas)
-- Con filtro: `http://127.0.0.1:8000/api/v1/plants?proyecto_id=29` (solo plantas del proyecto 29)
+Cuando se configura **Proyecto ID**, el plugin construye la URL automaticamente:
+- Sin filtro: `http://127.0.0.1:8000/api/v1/plantas` (todas las plantas)
+- Con filtro: `http://127.0.0.1:8000/api/v1/plantas?proyecto_id=29` (solo plantas del proyecto 29)
+
+Durante la paginacion, si la API entrega `next_page_url` sin `proyecto_id`, el plugin lo vuelve a inyectar para no perder el filtro del proyecto.
 
 Esto es util cuando trabajas con multiples proyectos y cada instalacion de WordPress gestiona un proyecto especifico.
 
@@ -127,17 +137,17 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plants` de la siguiente
 | metros_cuadrados | superficie_vendible / superficie_total_principal | Fallback | Superficie comercial principal |
 | estado | is_active + active_reservation | Logica booleana | "disponible" si is_active=true y active_reservation=null |
 | tipologia | programa | Directo | Texto completo (ej: "3D+2B", "2 dormitorios") |
-| planta_label | product_code / name | Fallback | Codigo de producto o nombre |
+| planta_label | product_code | Directo | Codigo de producto |
 | orientacion | orientacion | Directo | Orientacion de la planta (ej: "SP", "Norte") |
-| superficie_interior | superficie_interior | Directo | Metros cuadrados interiores |
+| superficie_interior | superficie_util / superficie_interior | Fallback | Prioriza superficie_util |
 | terraza_m2 | superficie_terraza | Directo | Metros cuadrados de terraza |
 | superficie_total | superficie_total_principal | Directo | Metros cuadrados totales |
-| cotizacion_url | cotizacion_url / cotiza_url | Fallback | Usa URL por planta; si viene vacia, frontend usa `COTIZA_URL` de `.env` |
+| foto_portada | cover_image_url / cover_image_media.url | Fallback | Imagen principal de la planta |
+| foto_interior | interior_image_url / interior_image_media.url | Fallback | Imagen interior para lightbox |
+| cotizacion_url | cotizacion_url / cotiza_url | Fallback | Usa URL por planta; si viene vacia, frontend usa la URL Cotizar por defecto del plugin |
 
-**Campos NO mapeados desde API** (carga manual requerida):
-- **fotos** (imagen_url): Se debe cargar via biblioteca multimedia de WordPress
-- **brochure** (brochure_url): Archivo opcional, se carga via biblioteca multimedia
-- **fecha_disponibilidad**: Campo disponible en DB pero no se mapea actualmente
+**Campos opcionales no siempre presentes en API**:
+- `brochure` (si no viene desde API puede cargarse manualmente en admin)
 
 **Extraccion numerica de programa/programa2:**
 - El metodo `extract_number_from_programa()` extrae el primer numero encontrado en el texto
@@ -146,14 +156,14 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plants` de la siguiente
 
 Cabeceras esperadas:
 
-`external_id,nombre,descripcion,precio,banos,dormitorios,metros_cuadrados,tipologia,planta_label,orientacion,superficie_interior,terraza_m2,superficie_total,foto,brochure,cotizacion_url,estado`
+`external_id,nombre,descripcion,precio_base,precio_lista,banos,dormitorios,metros_cuadrados,tipologia,planta_label,orientacion,superficie_interior,terraza_m2,superficie_total,foto_portada,foto_interior,brochure,cotizacion_url,estado`
 
 Notas:
 
 - `external_id` y `nombre` son obligatorios.
-- `foto` contiene solo una URL de imagen por planta.
+- `foto_portada` y `foto_interior` contienen URLs de imagen por planta.
 - `brochure` es opcional y admite URL de archivo (por ejemplo PDF).
-- `cotizacion_url` es opcional; si viene vacio se usa `COTIZA_URL` desde `.env`.
+- `cotizacion_url` es opcional; si viene vacio se usa la URL Cotizar por defecto del plugin.
 - `tipologia`, `planta_label`, `orientacion`, `superficie_interior`, `terraza_m2` y `superficie_total` son opcionales pero recomendados para la vista tipo ficha.
 - Si `external_id` ya existe, se actualiza (upsert).
 
@@ -180,30 +190,25 @@ La carga de assets es condicional para reducir conflictos con el theme.
 
 ### 1. Configuracion inicial
 
-```env
-# .env
-ENDPOINT_API=http://127.0.0.1:8000/api/v1/plants
-PROYECTO_ID=29
-TIMEOUT=30
-CRON=true
-```
+Configura los datos en **Plantas → Sincronizar API**.
 
 ### 2. Sincronizacion desde API
 
 1. Ve a **Plantas → Sincronizar API** en el admin de WordPress
 2. El plugin:
-   - Hace GET a `http://127.0.0.1:8000/api/v1/plants?proyecto_id=29`
+  - Hace GET a `http://127.0.0.1:8000/api/v1/plantas?proyecto_id=29`
    - Mapea los campos de la API (ver tabla de mapeo arriba)
    - Crea o actualiza plantas por `salesforce_product_id` (external_id)
+  - Si hay `proyecto_id`, depura registros locales fuera de ese proyecto
    - Muestra mensaje de exito: "Se han sincronizado X plantas"
 
 ### 3. Completar informacion de plantas
 
-Las imagenes y brochures NO vienen de la API, debemos agregarlas manualmente:
+Las imagenes de portada/interior pueden venir desde API. El brochure sigue siendo opcional y puede completarse manualmente:
 
 1. Ve a **Plantas → Listado**
 2. Haz clic en "Editar" en cada planta
-3. Usa el boton **"Seleccionar imagen"** para cargar una foto (biblioteca multimedia de WordPress)
+3. Verifica/ajusta **Imagen Portada** y **Imagen Interior** si corresponde
 4. Opcionalmente usa **"Seleccionar brochure"** para agregar un PDF descargable
 5. Guarda la planta
 
@@ -213,24 +218,27 @@ Las imagenes y brochures NO vienen de la API, debemos agregarlas manualmente:
 2. Agrega el shortcode: `[ileben_plantas]`
 3. Publica la pagina
 4. Los visitantes veran:
-   - Carrusel de plantas con imagenes
-   - Filtros por tipologia (programa) y planta (product_code)
+  - Carrusel de plantas con imagenes de portada
+  - Filtros por tipologia (programa), piso y planta (product_code)
    - Panel lateral con detalles: precio, superficies, orientacion
+  - Apertura de imagen interior en lightbox al hacer click en la portada
    - Boton para descargar brochure (si existe)
+  - Indicador de total y mostradas, con paginacion incremental al navegar carrusel
 
 ### 5. Sincronizacion automatica (opcional)
 
-Si configuraste `CRON=true`, el plugin sincroniza automaticamente cada hora:
+Si activaste la opcion de sincronizacion horaria (CRON) en la configuracion del plugin, el plugin sincroniza automaticamente cada hora:
 - Actualiza precios, disponibilidad y otros datos desde la API
 - Las imagenes y brochures cargados manualmente se mantienen
 - Solo se actualizan los campos que vienen de la API
 
 ## Ejemplos de respuesta API
 
-### Estructura esperada de `/api/v1/plants`:
+### Estructura esperada de respuesta paginada:
 
 ```json
 {
+  "current_page": 1,
   "data": [
     {
       "id": 167,
@@ -254,11 +262,15 @@ Si configuraste `CRON=true`, el plugin sincroniza automaticamente cada hora:
       }
     }
   ],
+  "next_page_url": "https://new.ileben.cl/api/v1/plantas?page=2",
+  "prev_page_url": null,
   "total": 19,
   "per_page": 12,
-  "current_page": 1
+  "last_page": 2
 }
 ```
+
+El plugin recorre automaticamente todas las paginas usando `next_page_url` hasta completar la sincronizacion y preserva `proyecto_id` durante toda la paginacion.
 
 ### Mapeo aplicado:
 
@@ -271,17 +283,18 @@ Si configuraste `CRON=true`, el plugin sincroniza automaticamente cada hora:
 
 ## Troubleshooting
 
-### Error: "Debes configurar ENDPOINT_API en el archivo .env"
-- Verifica que existe el archivo `.env` en la raiz del plugin
-- Asegurate de que la variable `ENDPOINT_API` tiene una URL valida
+### Error: "Debes configurar el endpoint API en la configuracion del plugin"
+- Ve a **Plantas → Sincronizar API**
+- Completa el campo **Endpoint API** con una URL valida
+- Guarda la configuracion e intenta sincronizar nuevamente
 
 ### La sincronizacion no trae plantas
 - Verifica que la API Laravel este corriendo: `curl http://127.0.0.1:8000/api/v1/plants`
-- Si usas `PROYECTO_ID`, verifica que el proyecto tiene plantas en la base de datos
+- Si usas **Proyecto ID**, verifica que el proyecto tiene plantas en la base de datos
 - Revisa los logs de WordPress en caso de errores HTTP
 
 ### El CRON no sincroniza automaticamente
-- Verifica que `CRON=true` en el `.env`
+- Verifica que la opcion **Activar sincronizacion horaria (CRON)** este marcada en **Plantas → Sincronizar API**
 - El CRON de WordPress debe estar funcionando (se ejecuta con visitas al sitio o WP-CLI)
 - Prueba manualmente desde **Plantas → Sincronizar API** primero
 

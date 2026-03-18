@@ -1,35 +1,98 @@
-.ileben-showcase {
-    background: #f3f3f3;
-    border: 1px solid #d7d7d7;
+.ileben-showcase {   
     padding: 2rem;
+    --leben-color: #313131;
+    --leben-color-light: #c5c5c5;
+    --leben-color-dark: #1a1a1a;
+    --leben-bg-color: #f3f3f3;
+    --leben-border-color: var(--leben-brand-color, #575757);
+    --leben-font-size: 1rem;
+    background: var(--leben-bg-color);
+    font-size: var(--leben-font-size);
+    position: relative;
+    box-shadow: rgba(17, 17, 26, 0.1) 0px 1px 0px;
+}
+
+.ileben-filter-loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 1.1rem;
+    border: 1px solid var(--leben-border-color);
+    background: var(--leben-bg-color);
+    color: var(--leben-color);
+    font-size: 0.95rem;
+    z-index: 21;
+    border-radius: 6px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+}
+
+.ileben-showcase.is-filtering .ileben-filter-loader {
+    opacity: 1;
+    visibility: visible;
+}
+
+.ileben-showcase.is-filtering::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(243, 243, 243, 0.72);
+    z-index: 20;
+}
+
+.ileben-showcase.is-filtering .ileben-main-grid,
+.ileben-showcase.is-filtering .ileben-top-filters {
+    pointer-events: none;
+}
+
+.ileben-showcase.is-filtering .ileben-main-grid {
+    filter: blur(0.5px);
+}
+.ileben-showcase .ileben-k .fa-solid, .ileben-showcase .ileben-k .fa-regular {
+    color: var(--leben-color-light);
+}
+.tooltip-inner{
+    --bs-tooltip-color: #fff;
 }
 
 .ileben-top-filters {
-    display: grid;
+    /* display: grid;
     grid-template-columns: 2fr 2fr 2fr;
-    gap: 1rem;
+    gap: 1rem; */
     align-items: center;
-    border: 1px solid #cfcfcf;
     padding: 1.25rem;
     margin-bottom: 2rem;
-    background: #fafafa;
+    background: var(--leben-bg-color);
+    box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 
 .ileben-filter-title {
     font-size: 2rem;
     font-weight: 300;
-    color: #2c2c2c;
+    color: var(--leben-color);
 }
 
 .ileben-filter-select {
     border: 0;
-    border-bottom: 1px solid #666;
+    border-bottom: 1px solid var(--leben-border-color);
     background: transparent;
     padding: 0.6rem 0.25rem;
-    font-size: 1rem;
+    font-size: var(--leben-font-size);
+    color: var(--leben-color);
 }
 
-.ileben-main-grid {
+.ileben-filter-select:focus-visible {
+    outline: 0;
+    border-color: var(--leben-color);
+    color: var(--leben-color-dark);
+}
+
+/* .ileben-main-grid {
     display: grid;
     grid-template-columns: 1.3fr 1fr;
     gap: 2rem;
@@ -37,14 +100,14 @@
 
 .ileben-carousel-col {
     min-width: 0;
-}
+} */
 
 .ileben-plan-image {
     width: 100%;
     aspect-ratio: 3 / 4;
     object-fit: contain;
-    background: #fff;
-    border: 1px solid #ddd;
+    background: var(--leben-bg-color);
+    /* border: 1px solid var(--leben-border-color); */
 }
 
 .ileben-empty {
@@ -52,9 +115,68 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #777;
-    background: #fff;
-    border: 1px dashed #bbb;
+    color: var(--leben-color);
+    background-color: var(--leben-bg-color);
+    border: 1px dashed var(--leben-border-color);
+}
+
+.ileben-lightbox-trigger {
+    display: inline-flex;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: zoom-in;
+}
+
+.ileben-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.84);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.ileben-showcase-credit {
+    font-size: calc(var(--leben-font-size) * 0.8);
+    color: var(--leben-color-light);
+    margin-top: 0.5rem;
+    text-align: right;
+}
+
+.ileben-lightbox.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.ileben-lightbox img {
+    max-width: min(100%, 1200px);
+    max-height: 88vh;
+    object-fit: contain;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: #111;
+}
+
+.ileben-lightbox-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
 }
 
 .ileben-showcase .carousel-control-prev,
@@ -74,56 +196,64 @@
     border-radius: 50%;
     border: 0;
     margin: 0 4px;
-    background-color: #9c9c9c;
+    background-color: var(--leben-color-light)
 }
 
-.ileben-showcase .carousel-indicators .active {
+/* .ileben-showcase .carousel-indicators .active {
     background-color: #4b8e8f;
-}
+} */
 
 .ileben-detail-name {
-    font-size: 2.1rem;
+    font-size: var(--leben-font-size);
     font-weight: 300;
     margin-bottom: 0.5rem;
+    color: var(--leben-color);
 }
 
 .ileben-detail-desc {
-    color: #6c6c6c;
+    color: var(--leben-color);
     min-height: 2.6rem;
     margin-bottom: 1.2rem;
 }
 
-.ileben-details-grid {
+.ileben-details-col {
+    opacity: 1;
+    transition: all 0.2s ease;
+}
+.transition-opacity{
+    opacity: 0.5 !important;
+    filter: blur(2px);
+}
+
+/* .ileben-details-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.25rem 2rem;
     margin-bottom: 1.5rem;
-}
+} */
 
 .ileben-k {
     display: block;
     font-size: 0.9rem;
-    color: #686868;
+    color: var(--leben-color);
 }
 
-.ileben-v {
-    display: block;
-    font-size: 2rem;
+.ileben-v, .ileben-p {
+    display: block;    
+    color: var(--leben-color);
     font-weight: 300;
-    color: #2f2f2f;
     line-height: 1.1;
+}
+.ileben-v {
+    font-size: calc(var(--leben-font-size) * 1.5);
+}
+.ileben-p{
+    font-size: calc(var(--leben-font-size) * 2.5);
+    font-weight: 400;
 }
 
 .ileben-price-wrap {
     margin-bottom: 1.2rem;
-}
-
-.ileben-price {
-    display: block;
-    font-size: 3rem;
-    font-weight: 300;
-    color: #101010;
-    line-height: 1;
 }
 
 .ileben-actions {
@@ -132,42 +262,42 @@
     flex-wrap: wrap;
 }
 
-.btn-teal {
-    background: #5f9ea0;
-    color: #fff;
-    border: 1px solid #5f9ea0;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.7rem 1.25rem;
+.ileben-showcase .img-fluid-h {
+    width: auto;
+    height: 100%;
 }
 
-.btn-outline-teal {
-    background: transparent;
-    color: #4f8f90;
-    border: 1px solid #4f8f90;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 0.7rem 1.25rem;
+.ileben-showcase .p-lg {
+    padding-top: 4rem !important;
+    padding-bottom: 5rem !important;
+    padding-left: 2rem !important;
+}
+
+.ileben-showcase .btn-primary{    
+    --bs-btn-bg: var(--leben-brand-color, #eb0029);
+    --bs-btn-border-color: var(--leben-brand-color, #eb0029);
+}
+
+.ileben-showcase .carousel.slide .carousel-control-next,
+.ileben-showcase .carousel.slide .carousel-control-prev {
+    filter: none;
+}
+
+.ileben-showcase .carousel.slide .carousel-control-next i, .ileben-showcase .carousel.slide .carousel-control-prev i {
+    font-size: calc(var(--leben-font-size) * 2.5);
+    color: var(--leben-brand-color, #eb0029);
 }
 
 @media (max-width: 960px) {
-    .ileben-top-filters {
-        grid-template-columns: 1fr;
-    }
-
     .ileben-filter-title {
-        font-size: 1.6rem;
-    }
-
-    .ileben-main-grid {
-        grid-template-columns: 1fr;
+        font-size: calc(var(--leben-font-size) * 1.6);
     }
 
     .ileben-v {
-        font-size: 1.5rem;
+        font-size: calc(var(--leben-font-size) * 1.5);
     }
 
     .ileben-price {
-        font-size: 2.2rem;
+        font-size: calc(var(--leben-font-size) * 2.2);
     }
 }

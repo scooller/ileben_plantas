@@ -10,3 +10,55 @@
 .ileben-admin .alert {
     margin: 12px 0 16px;
 }
+
+/* Estado Toggle/Switch */
+.ileben-estado-toggle {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+}
+
+.ileben-estado-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid #dee2e6;
+    border-radius: 50%;
+    background-color: #f8f9fa;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.ileben-estado-btn svg {
+    width: 100%;
+    height: 100%;
+    fill: #6c757d;
+    transition: fill 0.3s ease;
+}
+
+.ileben-estado-btn.active {
+    border-color: #0d6efd;
+    background-color: #e7f1ff;
+}
+
+.ileben-estado-btn.active svg {
+    fill: #0d6efd;
+}
+
+.ileben-estado-btn:hover {
+    border-color: #0d6efd;
+    background-color: #f0f6ff;
+}
+
+.ileben-estado-label {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #212529;
+    user-select: none;
+    padding-top: 0.25rem;
+}

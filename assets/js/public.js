@@ -11,7 +11,25 @@
         if (!num) {
             return '-';
         }
-        return formatNumber(num) + ' m2 aprox';
+        return formatNumber(num) + ' <sup>m2*</sup>';
+    }
+
+    function normalizeSecureUrl(url) {
+        if (!url) {
+            return '';
+        }
+
+        try {
+            var parsed = new URL(String(url), window.location.origin);
+            var host = (parsed.hostname || '').toLowerCase();
+            var isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.local');
+            if (window.location.protocol === 'https:' && parsed.protocol === 'http:' && !isLocalHost) {
+                parsed.protocol = 'https:';
+            }
+            return parsed.toString();
+        } catch (e) {
+            return String(url);
+        }
     }
 
     function initShowcase(wrapper) {
@@ -28,49 +46,159 @@
         var carouselId = wrapper.id + '-carousel';
         var carouselElement = document.getElementById(carouselId);
         var inner = carouselElement.querySelector('.carousel-inner');
-        var indicators = document.getElementById(wrapper.id + '-indicators');
+        var mainGrid = wrapper.querySelector('.ileben-main-grid');
+        var detailsCol = wrapper.querySelector('.ileben-details-col');
+        var nextControl = wrapper.querySelector('.carousel-control-next');
+        // var indicators = document.getElementById(wrapper.id + '-indicators');
         var tipologiaSelect = wrapper.querySelector('[data-filter="tipologia"]');
         var plantaSelect = wrapper.querySelector('[data-filter="planta_label"]');
-        var detailName = wrapper.querySelector('[data-field="nombre"]');
+        var pisoSelect = wrapper.querySelector('[data-filter="piso"]');
+        var shownPlantsNode = wrapper.querySelector('.show_plantas');
+        var ajaxUrl = wrapper.getAttribute('data-ajax-url') || '';
+        var ajaxNonce = wrapper.getAttribute('data-ajax-nonce') || '';
+        var ajaxPerPage = Number(wrapper.getAttribute('data-ajax-per-page') || 5000);
+        var defaultOrderBy = wrapper.getAttribute('data-orderby') || '';
+        var defaultEstado = wrapper.getAttribute('data-estado') || '';
+        var detailName = wrapper.querySelector('[data-field="name"], [data-field="nombre"]');
         var detailDesc = wrapper.querySelector('[data-field="descripcion"]');
+        var lightbox = wrapper.querySelector('.ileben-lightbox');
+        var lightboxImage = wrapper.querySelector('[data-lightbox-image]');
+        var lightboxClose = wrapper.querySelector('[data-lightbox-close]');
         var fields = {
-            planta_label: wrapper.querySelector('[data-field="planta_label"]'),
-            superficie_interior: wrapper.querySelector('[data-field="superficie_interior"]'),
+            planta_label: wrapper.querySelector('[data-field="planta_label"], [data-field="product_code"]'),
+            superficie_util: wrapper.querySelector('[data-field="superficie_util"]'),
             dorm_bano: wrapper.querySelector('[data-field="dorm_bano"]'),
             terraza_m2: wrapper.querySelector('[data-field="terraza_m2"]'),
             orientacion: wrapper.querySelector('[data-field="orientacion"]'),
             superficie_total: wrapper.querySelector('[data-field="superficie_total"]'),
-            precio: wrapper.querySelector('[data-field="precio"]')
+            precio_base: wrapper.querySelector('[data-field="precio_base"]'),
+            // precio_lista: wrapper.querySelector('[data-field="precio_lista"]')
         };
         var brochureBtn = wrapper.querySelector('[data-field="brochure_btn"]');
         var cotizarBtn = wrapper.querySelector('[data-field="cotizar_btn"]');
         var visibleItems = allItems.slice();
+        var currentFilters = { tipologia: '', planta_label: '', piso: '' };
+        var ajaxPage = 1;
+        var ajaxHasMore = false;
+        var ajaxLoadingMore = false;
+
+        function updateShownPlants(count) {
+            if (!shownPlantsNode) {
+                return;
+            }
+
+            shownPlantsNode.textContent = String(Math.max(0, Number(count) || 0));
+        }
+
+        function openLightbox(imageUrl, altText) {
+            if (!lightbox || !lightboxImage || !imageUrl) {
+                return;
+            }
+
+            lightboxImage.setAttribute('src', normalizeSecureUrl(imageUrl));
+            lightboxImage.setAttribute('alt', altText || 'Imagen interior');
+            lightbox.classList.add('is-open');
+        }
+
+        function closeLightbox() {
+            if (!lightbox || !lightboxImage) {
+                return;
+            }
+
+            lightbox.classList.remove('is-open');
+            lightboxImage.setAttribute('src', '');
+        }
+
+        function setFilteringState(isFiltering) {
+            if (isFiltering) {
+                wrapper.classList.add('is-filtering');
+                if (mainGrid) {
+                    mainGrid.classList.add('transition-opacity');
+                }
+                return;
+            }
+            wrapper.classList.remove('is-filtering');
+            if (mainGrid) {
+                mainGrid.classList.remove('transition-opacity');
+            }
+        }
+
+        function fetchFilteredItems(filters, page) {
+            if (!ajaxUrl || !ajaxNonce) {
+                return Promise.resolve(null);
+            }
+
+            var body = new URLSearchParams({
+                action: 'ileben_api_filter_plantas',
+                nonce: ajaxNonce,
+                tipologia: filters.tipologia || '',
+                planta_label: filters.planta_label || '',
+                piso: filters.piso || '',
+                orderby: defaultOrderBy || '',
+                estado: defaultEstado || '',
+                per_page: String(ajaxPerPage || 100),
+                page: String(Math.max(1, Number(page) || 1))
+            });
+
+            return window.fetch(ajaxUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                },
+                body: body.toString(),
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (json) {
+                    if (!json || json.success !== true || !json.data || !Array.isArray(json.data.items)) {
+                        return null;
+                    }
+                    return {
+                        items: json.data.items,
+                        total: Number(json.data.total || 0),
+                        page: Number(json.data.page || 1),
+                        pages: Number(json.data.pages || 1),
+                        hasMore: Boolean(json.data.has_more)
+                    };
+                })
+                .catch(function () {
+                    return null;
+                });
+        }
 
         function updateDetails(item) {
-            detailName.textContent = item.tipologia || item.nombre || 'Tipologia';
-            detailDesc.textContent = item.descripcion || '';
-            fields.planta_label.textContent = item.planta_label || '-';
-            fields.superficie_interior.textContent = formatArea(item.superficie_interior);
-            fields.dorm_bano.textContent = item.dorm_bano || '-';
-            fields.terraza_m2.textContent = formatArea(item.terraza_m2);
-            fields.orientacion.textContent = item.orientacion || '-';
-            fields.superficie_total.textContent = formatArea(item.superficie_total);
-            fields.precio.textContent = 'UF ' + Number(item.precio || 0).toLocaleString('es-CL');
+            if (detailName) {
+                detailName.textContent = item.name || item.nombre || item.tipologia || 'Tipologia';
+            }
+            if (detailDesc) {
+                detailDesc.textContent = item.descripcion || '';
+            }
+            if (fields.planta_label) fields.planta_label.textContent = item.product_code || item.planta_label || '-';
+            if (fields.superficie_util) fields.superficie_util.innerHTML = formatArea(item.superficie_util);
+            if (fields.dorm_bano) fields.dorm_bano.textContent = item.dorm_bano || '-';
+            if (fields.terraza_m2) fields.terraza_m2.innerHTML = formatArea(item.terraza_m2);
+            if (fields.orientacion) fields.orientacion.textContent = item.orientacion || '-';
+            if (fields.superficie_total) fields.superficie_total.innerHTML = formatArea(item.superficie_total);
+
+            var precioBase = Number(item.precio_base || 0);
+            // var precioLista = Number(item.precio_lista || item.precio || 0);
+            if (fields.precio_base) fields.precio_base.textContent = 'UF ' + precioBase.toLocaleString('es-CL', { maximumFractionDigits: 0 });
+            // fields.precio_lista.textContent = 'Lista: UF ' + precioLista.toLocaleString('es-CL');
 
             if (cotizarBtn) {
                 if (item.cotizacion_url) {
-                    cotizarBtn.style.display = 'inline-flex';
-                    cotizarBtn.setAttribute('href', item.cotizacion_url);
+                    cotizarBtn.setAttribute('href', normalizeSecureUrl(item.cotizacion_url));
                 } else {
                     cotizarBtn.style.display = 'none';
                     cotizarBtn.setAttribute('href', '#');
                 }
             }
 
-            if (item.brochure) {
-                brochureBtn.style.display = 'inline-flex';
-                brochureBtn.setAttribute('href', item.brochure);
-            } else {
+            if (brochureBtn && item.brochure) {
+                brochureBtn.setAttribute('href', normalizeSecureUrl(item.brochure));
+            } else if (brochureBtn) {
                 brochureBtn.style.display = 'none';
                 brochureBtn.setAttribute('href', '#');
             }
@@ -78,7 +206,8 @@
 
         function renderCarousel(items) {
             inner.innerHTML = '';
-            indicators.innerHTML = '';
+            // indicators.innerHTML = '';
+            updateShownPlants(items.length);
 
             if (!items.length) {
                 inner.innerHTML = '<div class="carousel-item active"><div class="ileben-empty">No hay plantas para esos filtros.</div></div>';
@@ -88,15 +217,16 @@
 
             items.forEach(function (item, index) {
                 var slide = document.createElement('div');
-                slide.className = 'carousel-item' + (index === 0 ? ' active' : '');
+                slide.className = 'carousel-item text-center' + (index === 0 ? ' active' : '');
                 slide.setAttribute('data-item-id', String(item.id));
 
-                var imageSrc = item.imagen || item.imagen_fallback || '';
-                var fallbackSrc = item.imagen_fallback || '';
+                var imageSrc = normalizeSecureUrl(item.imagen || item.imagen_fallback || '');
+                var interiorImageSrc = normalizeSecureUrl(item.imagen_interior || imageSrc || '');
+                var fallbackSrc = normalizeSecureUrl(item.imagen_fallback || '');
                 var safeAlt = item.nombre || 'Planta';
 
                 var imageHtml = imageSrc
-                    ? '<img src="' + imageSrc + '" class="d-block w-100 ileben-plan-image" alt="' + safeAlt + '" data-fallback-src="' + fallbackSrc + '">'
+                    ? '<button type="button" class="ileben-lightbox-trigger w-100 h-100" data-bs-toggle="tooltip" data-bs-title="Ver imagen interior" data-interior-src="' + interiorImageSrc + '" aria-label="Ver imagen interior"><img src="' + imageSrc + '" class="object-fit-cover mx-auto w-75" alt="' + safeAlt + '" data-fallback-src="' + fallbackSrc + '"></button>'
                     : '<div class="ileben-empty">Sin imagen disponible</div>';
 
                 slide.innerHTML = imageHtml;
@@ -116,6 +246,13 @@
                     });
                 }
 
+                var trigger = slide.querySelector('.ileben-lightbox-trigger');
+                if (trigger) {
+                    trigger.addEventListener('click', function () {
+                        openLightbox(trigger.getAttribute('data-interior-src') || '', safeAlt);
+                    });
+                }
+
                 var indicator = document.createElement('button');
                 indicator.type = 'button';
                 indicator.setAttribute('data-bs-target', '#' + carouselId);
@@ -125,37 +262,156 @@
                     indicator.classList.add('active');
                     indicator.setAttribute('aria-current', 'true');
                 }
-                indicators.appendChild(indicator);
+                // indicators.appendChild(indicator);
             });
 
             updateDetails(items[0]);
         }
 
-        function applyFilters() {
+        function applyFilters(showLoader, useAjax) {
+            var useLoader = showLoader !== false;
+            var shouldUseAjax = useAjax === true;
             var tipologia = tipologiaSelect ? tipologiaSelect.value : '';
             var planta = plantaSelect ? plantaSelect.value : '';
+            var piso = pisoSelect ? pisoSelect.value : '';
+            currentFilters = {
+                tipologia: tipologia,
+                planta_label: planta,
+                piso: piso
+            };
 
-            visibleItems = allItems.filter(function (item) {
-                var tipologiaOk = !tipologia || item.tipologia === tipologia;
-                var plantaOk = !planta || item.planta_label === planta;
-                return tipologiaOk && plantaOk;
-            });
+            var runFiltering = function () {
+                //add class to ileben-main-grid to reduce opacity and add loader
+                
+                visibleItems = allItems.filter(function (item) {
+                    var tipologiaOk = !tipologia || item.tipologia === tipologia;
+                    var plantaOk = !planta || (item.product_code || item.planta_label) === planta;
+                    var pisoOk = !piso || String(item.piso || '') === piso;
+                    return tipologiaOk && plantaOk && pisoOk;
+                });
 
-            renderCarousel(visibleItems);
+                renderCarousel(visibleItems);
 
-            if (window.bootstrap && carouselElement) {
-                window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
+                if (window.bootstrap && carouselElement) {
+                    window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
+                }
+
+                setFilteringState(false);
+            };
+
+            var runAjaxFiltering = function () {
+                fetchFilteredItems(currentFilters, 1).then(function (response) {
+                    if (response && Array.isArray(response.items)) {
+                        allItems = response.items;
+                        visibleItems = response.items;
+                        ajaxPage = response.page || 1;
+                        ajaxHasMore = Boolean(response.hasMore);
+                        renderCarousel(visibleItems);
+
+                        if (window.bootstrap && carouselElement) {
+                            window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
+                        }
+
+                        setFilteringState(false);
+                        return;
+                    }
+
+                    runFiltering();
+                });
+            };
+
+            if (!useLoader) {
+                runFiltering();
+                return;
             }
+
+            setFilteringState(true);
+            window.setTimeout(function () {
+                if (shouldUseAjax) {
+                    runAjaxFiltering();
+                    return;
+                }
+                runFiltering();
+            }, 140);
+        }
+
+        function loadNextPageIfNeeded() {
+            if (ajaxLoadingMore || !ajaxHasMore) {
+                return;
+            }
+
+            var slides = inner.querySelectorAll('.carousel-item');
+            var active = inner.querySelector('.carousel-item.active');
+            if (!active || !slides.length) {
+                return;
+            }
+
+            var activeIndex = Array.prototype.indexOf.call(slides, active);
+            if (activeIndex !== slides.length - 1) {
+                return;
+            }
+
+            ajaxLoadingMore = true;
+            setFilteringState(true);
+
+            fetchFilteredItems(currentFilters, ajaxPage + 1).then(function (response) {
+                if (!response || !Array.isArray(response.items) || !response.items.length) {
+                    ajaxHasMore = false;
+                    return;
+                }
+
+                var startIndex = allItems.length;
+                allItems = allItems.concat(response.items);
+                visibleItems = allItems;
+                ajaxPage = response.page || (ajaxPage + 1);
+                ajaxHasMore = Boolean(response.hasMore);
+
+                renderCarousel(visibleItems);
+
+                if (window.bootstrap && carouselElement) {
+                    var carouselInstance = window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
+                    carouselInstance.to(startIndex);
+                }
+            }).finally(function () {
+                ajaxLoadingMore = false;
+                setFilteringState(false);
+            });
+        }
+
+        function onFilterChange(event) {
+            if (event && event.target === plantaSelect && plantaSelect && plantaSelect.value !== '') {
+                if (tipologiaSelect) {
+                    tipologiaSelect.value = '';
+                }
+                if (pisoSelect) {
+                    pisoSelect.value = '';
+                }
+            }
+
+            applyFilters(true, true);
         }
 
         if (tipologiaSelect) {
-            tipologiaSelect.addEventListener('change', applyFilters);
+            tipologiaSelect.addEventListener('change', onFilterChange);
         }
         if (plantaSelect) {
-            plantaSelect.addEventListener('change', applyFilters);
+            plantaSelect.addEventListener('change', onFilterChange);
+        }
+        if (pisoSelect) {
+            pisoSelect.addEventListener('change', onFilterChange);
         }
 
+        carouselElement.addEventListener('slide.bs.carousel', function () {
+            if (detailsCol) {
+                detailsCol.classList.add('transition-opacity');
+            }
+        });
+
         carouselElement.addEventListener('slid.bs.carousel', function () {
+            if (detailsCol) {
+                detailsCol.classList.remove('transition-opacity');
+            }
+
             var active = inner.querySelector('.carousel-item.active');
             if (!active) {
                 return;
@@ -169,13 +425,34 @@
             if (current) {
                 updateDetails(current);
             }
+
+            loadNextPageIfNeeded();
         });
 
-        applyFilters();
+        if (lightboxClose) {
+            lightboxClose.addEventListener('click', closeLightbox);
+        }
+        if (lightbox) {
+            lightbox.addEventListener('click', function (event) {
+                if (event.target === lightbox) {
+                    closeLightbox();
+                }
+            });
+        }
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeLightbox();
+            }
+        });
+
+        applyFilters(false, true);
     }
 
     document.addEventListener('DOMContentLoaded', function () {
         var showcases = document.querySelectorAll('.ileben-showcase');
         showcases.forEach(initShowcase);
+        //tooltips
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
     });
 })();
