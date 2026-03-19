@@ -81,6 +81,24 @@
         var ajaxPage = 1;
         var ajaxHasMore = false;
         var ajaxLoadingMore = false;
+        var filteringSafetyTimer = null;
+        var FILTERING_TIMEOUT_MS = 4500;
+
+        function clearFilteringSafetyTimer() {
+            if (!filteringSafetyTimer) {
+                return;
+            }
+
+            window.clearTimeout(filteringSafetyTimer);
+            filteringSafetyTimer = null;
+        }
+
+        function scheduleFilteringSafetyTimer() {
+            clearFilteringSafetyTimer();
+            filteringSafetyTimer = window.setTimeout(function () {
+                setFilteringState(false);
+            }, FILTERING_TIMEOUT_MS);
+        }
 
         function updateShownPlants(count) {
             if (!shownPlantsNode) {
@@ -115,12 +133,52 @@
                 if (mainGrid) {
                     mainGrid.classList.add('transition-opacity');
                 }
+                scheduleFilteringSafetyTimer();
                 return;
             }
+
+            clearFilteringSafetyTimer();
             wrapper.classList.remove('is-filtering');
             if (mainGrid) {
                 mainGrid.classList.remove('transition-opacity');
             }
+        }
+
+        function getCarouselController() {
+            if (!carouselElement) {
+                return null;
+            }
+
+            if (window.bootstrap && window.bootstrap.Carousel) {
+                if (typeof window.bootstrap.Carousel.getOrCreateInstance === 'function') {
+                    return window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
+                }
+
+                if (typeof window.bootstrap.Carousel.getInstance === 'function') {
+                    var bootstrapInstance = window.bootstrap.Carousel.getInstance(carouselElement);
+                    if (bootstrapInstance) {
+                        return bootstrapInstance;
+                    }
+                }
+
+                try {
+                    return new window.bootstrap.Carousel(carouselElement, { interval: false, ride: false });
+                } catch (e) {
+                    // Fallback to jQuery bootstrap plugin when present.
+                }
+            }
+
+            if (window.jQuery && typeof window.jQuery.fn.carousel === 'function') {
+                var $carousel = window.jQuery(carouselElement);
+                $carousel.carousel({ interval: false });
+                return {
+                    to: function (index) {
+                        $carousel.carousel(Number(index) || 0);
+                    }
+                };
+            }
+
+            return null;
         }
 
         function fetchFilteredItems(filters, page) {
@@ -189,6 +247,7 @@
 
             if (cotizarBtn) {
                 if (item.cotizacion_url) {
+                    cotizarBtn.style.display = '';
                     cotizarBtn.setAttribute('href', normalizeSecureUrl(item.cotizacion_url));
                 } else {
                     cotizarBtn.style.display = 'none';
@@ -197,6 +256,7 @@
             }
 
             if (brochureBtn && item.brochure) {
+                brochureBtn.style.display = '';
                 brochureBtn.setAttribute('href', normalizeSecureUrl(item.brochure));
             } else if (brochureBtn) {
                 brochureBtn.style.display = 'none';
@@ -292,9 +352,7 @@
 
                 renderCarousel(visibleItems);
 
-                if (window.bootstrap && carouselElement) {
-                    window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
-                }
+                getCarouselController();
 
                 setFilteringState(false);
             };
@@ -308,15 +366,15 @@
                         ajaxHasMore = Boolean(response.hasMore);
                         renderCarousel(visibleItems);
 
-                        if (window.bootstrap && carouselElement) {
-                            window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
-                        }
-
-                        setFilteringState(false);
+                        getCarouselController();
                         return;
                     }
 
                     runFiltering();
+                }).catch(function () {
+                    runFiltering();
+                }).finally(function () {
+                    setFilteringState(false);
                 });
             };
 
@@ -368,9 +426,9 @@
 
                 renderCarousel(visibleItems);
 
-                if (window.bootstrap && carouselElement) {
-                    var carouselInstance = window.bootstrap.Carousel.getOrCreateInstance(carouselElement, { interval: false, ride: false });
-                    carouselInstance.to(startIndex);
+                var carouselController = getCarouselController();
+                if (carouselController && typeof carouselController.to === 'function') {
+                    carouselController.to(startIndex);
                 }
             }).finally(function () {
                 ajaxLoadingMore = false;
@@ -451,8 +509,18 @@
     document.addEventListener('DOMContentLoaded', function () {
         var showcases = document.querySelectorAll('.ileben-showcase');
         showcases.forEach(initShowcase);
-        //tooltips
-        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
-        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+
+        // Tooltip bootstrap 5 / bootstrap 4 compatibility.
+        if (window.bootstrap && window.bootstrap.Tooltip) {
+            var tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            Array.prototype.forEach.call(tooltipTriggerList, function (tooltipTriggerEl) {
+                new window.bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            return;
+        }
+
+        if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.tooltip === 'function') {
+            window.jQuery('[data-bs-toggle="tooltip"], [data-toggle="tooltip"]').tooltip();
+        }
     });
 })();

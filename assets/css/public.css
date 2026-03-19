@@ -84,6 +84,7 @@
     padding: 0.6rem 0.25rem;
     font-size: var(--leben-font-size);
     color: var(--leben-color);
+    width: 12rem;
 }
 
 .ileben-filter-select:focus-visible {

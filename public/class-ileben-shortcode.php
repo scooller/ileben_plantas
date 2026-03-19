@@ -24,14 +24,14 @@ class Ileben_Api_Shortcode
 
     public function enqueue_assets()
     {
-        if (! is_singular()) {
-            return;
-        }
+        // if (! is_singular()) {
+        //     return;
+        // }
 
-        global $post;
-        if (! $post || ! has_shortcode((string) $post->post_content, 'ileben_plantas')) {
-            return;
-        }
+        // global $post;
+        // if (! $post || ! has_shortcode((string) $post->post_content, 'ileben_plantas')) {
+        //     return;
+        // }
 
         wp_enqueue_style(
             'ileben-api-bootstrap',
@@ -47,11 +47,16 @@ class Ileben_Api_Shortcode
             '7.0.1'
         );
 
+        $public_css_path = ILEBEN_API_PATH . 'assets/css/public.css';
+        $public_js_path = ILEBEN_API_PATH . 'assets/js/public.js';
+        $public_css_version = file_exists($public_css_path) ? (string) filemtime($public_css_path) : ILEBEN_API_VERSION;
+        $public_js_version = file_exists($public_js_path) ? (string) filemtime($public_js_path) : ILEBEN_API_VERSION;
+
         wp_enqueue_style(
             'ileben-api-public',
             ILEBEN_API_URL . 'assets/css/public.css',
             array('ileben-api-bootstrap', 'ileben-api-fontawesome'),
-            ILEBEN_API_VERSION
+            $public_css_version
         );
 
         wp_enqueue_script(
@@ -66,7 +71,7 @@ class Ileben_Api_Shortcode
             'ileben-api-public',
             ILEBEN_API_URL . 'assets/js/public.js',
             array('ileben-api-bootstrap'),
-            ILEBEN_API_VERSION,
+            $public_js_version,
             true
         );
 
