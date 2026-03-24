@@ -1,11 +1,13 @@
-.ileben-showcase {   
-    padding: 2rem;
+:root {
     --leben-color: #313131;
     --leben-color-light: #c5c5c5;
     --leben-color-dark: #1a1a1a;
     --leben-bg-color: #f3f3f3;
     --leben-border-color: var(--leben-brand-color, #575757);
     --leben-font-size: 1rem;
+}
+.ileben-showcase {
+    padding: 2rem;   
     background: var(--leben-bg-color);
     font-size: var(--leben-font-size);
     position: relative;
@@ -77,14 +79,28 @@
     color: var(--leben-color);
 }
 
-.ileben-filter-select {
+.ileben-filter-select, .ileben-showcase .select2-container {    
+    width: 12rem!important;
+}
+.ileben-showcase .select2-container .selection .select2-selection,.ileben-filter-select{
     border: 0;
     border-bottom: 1px solid var(--leben-border-color);
     background: transparent;
     padding: 0.6rem 0.25rem;
     font-size: var(--leben-font-size);
     color: var(--leben-color);
-    width: 12rem;
+    border-radius: 0;
+    min-height: 43px;
+}
+.select2-container--default .select2-results__option--highlighted.select2-results__option--selectable{
+    background-color: var(--leben-brand-color, #eb0029);
+    color: #fff;
+}
+.select2-results__option{
+    color: var(--leben-color);
+}
+.select2-container--default .select2-results__option--selected{
+    color: var(--leben-color);
 }
 
 .ileben-filter-select:focus-visible {

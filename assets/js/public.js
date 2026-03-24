@@ -11,7 +11,7 @@
         if (!num) {
             return '-';
         }
-        return formatNumber(num) + ' <sup>m2*</sup>';
+        return formatNumber(num) + ' m<sup>2*</sup>';
     }
 
     function normalizeSecureUrl(url) {
@@ -53,6 +53,8 @@
         var tipologiaSelect = wrapper.querySelector('[data-filter="tipologia"]');
         var plantaSelect = wrapper.querySelector('[data-filter="planta_label"]');
         var pisoSelect = wrapper.querySelector('[data-filter="piso"]');
+        var filterBtn = wrapper.querySelector('[data-action="filter"]');
+        var resetBtn = wrapper.querySelector('[data-action="reset"]');
         var shownPlantsNode = wrapper.querySelector('.show_plantas');
         var ajaxUrl = wrapper.getAttribute('data-ajax-url') || '';
         var ajaxNonce = wrapper.getAttribute('data-ajax-nonce') || '';
@@ -77,12 +79,36 @@
         var brochureBtn = wrapper.querySelector('[data-field="brochure_btn"]');
         var cotizarBtn = wrapper.querySelector('[data-field="cotizar_btn"]');
         var visibleItems = allItems.slice();
-        var currentFilters = { tipologia: '', planta_label: '', piso: '' };
+        var currentFilters = { tipologia: [], planta_label: [], piso: [] };
         var ajaxPage = 1;
         var ajaxHasMore = false;
         var ajaxLoadingMore = false;
         var filteringSafetyTimer = null;
         var FILTERING_TIMEOUT_MS = 4500;
+
+        function initSelect2(select) {
+            if (!select || !window.jQuery || !window.jQuery.fn || typeof window.jQuery.fn.select2 !== 'function') {
+                return;
+            }
+
+            var $select = window.jQuery(select);
+            if ($select.hasClass('select2-hidden-accessible')) {
+                return;
+            }
+
+            var placeholder = '';
+            if (select.options && select.options.length) {
+                placeholder = String(select.options[0].text || '').trim();
+            }
+
+            $select.select2({
+                width: '100%',
+                placeholder: placeholder || 'Seleccionar',
+                closeOnSelect: !select.multiple,
+                allowClear: true,
+                dropdownAutoWidth: true
+            });
+        }
 
         function clearFilteringSafetyTimer() {
             if (!filteringSafetyTimer) {
@@ -186,16 +212,22 @@
                 return Promise.resolve(null);
             }
 
-            var body = new URLSearchParams({
-                action: 'ileben_api_filter_plantas',
-                nonce: ajaxNonce,
-                tipologia: filters.tipologia || '',
-                planta_label: filters.planta_label || '',
-                piso: filters.piso || '',
-                orderby: defaultOrderBy || '',
-                estado: defaultEstado || '',
-                per_page: String(ajaxPerPage || 100),
-                page: String(Math.max(1, Number(page) || 1))
+            var body = new URLSearchParams();
+            body.append('action', 'ileben_api_filter_plantas');
+            body.append('nonce', ajaxNonce);
+            body.append('orderby', defaultOrderBy || '');
+            body.append('estado', defaultEstado || '');
+            body.append('per_page', String(ajaxPerPage || 100));
+            body.append('page', String(Math.max(1, Number(page) || 1)));
+
+            (filters.tipologia || []).forEach(function (value) {
+                body.append('tipologia[]', value);
+            });
+            (filters.planta_label || []).forEach(function (value) {
+                body.append('planta_label[]', value);
+            });
+            (filters.piso || []).forEach(function (value) {
+                body.append('piso[]', value);
             });
 
             return window.fetch(ajaxUrl, {
@@ -331,9 +363,9 @@
         function applyFilters(showLoader, useAjax) {
             var useLoader = showLoader !== false;
             var shouldUseAjax = useAjax === true;
-            var tipologia = tipologiaSelect ? tipologiaSelect.value : '';
-            var planta = plantaSelect ? plantaSelect.value : '';
-            var piso = pisoSelect ? pisoSelect.value : '';
+            var tipologia = getSelectValues(tipologiaSelect);
+            var planta = getSelectValues(plantaSelect);
+            var piso = getSelectValues(pisoSelect);
             currentFilters = {
                 tipologia: tipologia,
                 planta_label: planta,
@@ -344,9 +376,10 @@
                 //add class to ileben-main-grid to reduce opacity and add loader
                 
                 visibleItems = allItems.filter(function (item) {
-                    var tipologiaOk = !tipologia || item.tipologia === tipologia;
-                    var plantaOk = !planta || (item.product_code || item.planta_label) === planta;
-                    var pisoOk = !piso || String(item.piso || '') === piso;
+                    var tipologiaOk = !tipologia.length || tipologia.indexOf(item.tipologia) !== -1;
+                    var plantaCode = item.product_code || item.planta_label;
+                    var plantaOk = !planta.length || planta.indexOf(plantaCode) !== -1;
+                    var pisoOk = !piso.length || piso.indexOf(String(item.piso || '')) !== -1;
                     return tipologiaOk && plantaOk && pisoOk;
                 });
 
@@ -437,26 +470,83 @@
         }
 
         function onFilterChange(event) {
-            if (event && event.target === plantaSelect && plantaSelect && plantaSelect.value !== '') {
+            if (event && event.target === plantaSelect && plantaSelect && hasSelectValues(plantaSelect)) {
                 if (tipologiaSelect) {
-                    tipologiaSelect.value = '';
+                    clearSelect(tipologiaSelect);
                 }
                 if (pisoSelect) {
-                    pisoSelect.value = '';
+                    clearSelect(pisoSelect);
                 }
             }
+        }
 
-            applyFilters(true, true);
+        function getSelectValues(select) {
+            if (!select) {
+                return [];
+            }
+
+            if (select.multiple) {
+                return Array.prototype.map.call(select.selectedOptions || [], function (option) {
+                    return String(option.value || '').trim();
+                }).filter(function (value) {
+                    return value !== '';
+                });
+            }
+
+            var value = String(select.value || '').trim();
+            return value === '' ? [] : [value];
+        }
+
+        function hasSelectValues(select) {
+            return getSelectValues(select).length > 0;
+        }
+
+        function clearSelect(select) {
+            if (!select) {
+                return;
+            }
+
+            if (select.multiple) {
+                Array.prototype.forEach.call(select.options, function (option) {
+                    option.selected = false;
+                });
+            } else {
+                select.value = '';
+            }
+
+            if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.select2 === 'function') {
+                window.jQuery(select).trigger('change.select2');
+            }
         }
 
         if (tipologiaSelect) {
             tipologiaSelect.addEventListener('change', onFilterChange);
+            initSelect2(tipologiaSelect);
         }
         if (plantaSelect) {
             plantaSelect.addEventListener('change', onFilterChange);
+            initSelect2(plantaSelect);
         }
         if (pisoSelect) {
             pisoSelect.addEventListener('change', onFilterChange);
+            initSelect2(pisoSelect);
+        }
+
+        if (filterBtn) {
+            filterBtn.addEventListener('click', function (event) {
+                event.preventDefault();
+                applyFilters(true, true);
+            });
+        }
+
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function (event) {
+                event.preventDefault();
+                clearSelect(tipologiaSelect);
+                clearSelect(plantaSelect);
+                clearSelect(pisoSelect);
+                applyFilters(true, true);
+            });
         }
 
         carouselElement.addEventListener('slide.bs.carousel', function () {
@@ -503,7 +593,7 @@
             }
         });
 
-        applyFilters(false, true);
+        applyFilters(false, false);
     }
 
     document.addEventListener('DOMContentLoaded', function () {

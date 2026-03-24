@@ -47,6 +47,13 @@ class Ileben_Api_Shortcode
             '7.0.1'
         );
 
+        wp_enqueue_style(
+            'ileben-api-select2',
+            'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
+            array(),
+            '4.1.0-rc.0'
+        );
+
         $public_css_path = ILEBEN_API_PATH . 'assets/css/public.css';
         $public_js_path = ILEBEN_API_PATH . 'assets/js/public.js';
         $public_css_version = file_exists($public_css_path) ? (string) filemtime($public_css_path) : ILEBEN_API_VERSION;
@@ -55,8 +62,16 @@ class Ileben_Api_Shortcode
         wp_enqueue_style(
             'ileben-api-public',
             ILEBEN_API_URL . 'assets/css/public.css',
-            array('ileben-api-bootstrap', 'ileben-api-fontawesome'),
+            array('ileben-api-bootstrap', 'ileben-api-fontawesome', 'ileben-api-select2'),
             $public_css_version
+        );
+
+        wp_enqueue_script(
+            'ileben-api-select2',
+            'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
+            array('jquery'),
+            '4.1.0-rc.0',
+            true
         );
 
         wp_enqueue_script(
@@ -70,7 +85,7 @@ class Ileben_Api_Shortcode
         wp_enqueue_script(
             'ileben-api-public',
             ILEBEN_API_URL . 'assets/js/public.js',
-            array('ileben-api-bootstrap'),
+            array('jquery', 'ileben-api-bootstrap', 'ileben-api-select2'),
             $public_js_version,
             true
         );
@@ -180,14 +195,14 @@ class Ileben_Api_Shortcode
             <?php else : ?>
                 <?php if ($atts['mostrar_filtros'] === '1') : ?>
                     <div class="ileben-top-filters d-flex flex-wrap justify-content-start gap-3 mb-4">
-                        <div class="ileben-filter-title">Selecciona filtro</div>
-                        <select class="ileben-filter-select ms-auto" data-filter="tipologia">
+                        <div class="ileben-filter-title me-auto">Selecciona filtro</div>
+                        <select class="ileben-filter-select" multiple data-filter="tipologia">
                             <option value="">Todas las tipologias</option>
                             <?php foreach ($tipologias as $tipologia) : ?>
                                 <option value="<?php echo esc_attr($tipologia); ?>"><?php echo esc_html($tipologia); ?></option>
                             <?php endforeach; ?>
                         </select>                        
-                        <select class="ileben-filter-select" data-filter="piso">
+                        <select class="ileben-filter-select" multiple data-filter="piso">
                             <option value="">Todos los pisos</option>
                             <?php foreach ($pisos as $piso) : ?>
                                 <option value="<?php echo esc_attr($piso); ?>" <?php selected((string) ($filters['piso'] ?? ''), (string) $piso); ?>>Piso <?php echo esc_html($piso); ?></option>
@@ -199,6 +214,10 @@ class Ileben_Api_Shortcode
                                 <option value="<?php echo esc_attr($planta); ?>"><?php echo esc_html($planta); ?></option>
                             <?php endforeach; ?>
                         </select>
+                    </div>
+                    <div class="d-flex flex-wrap justify-content-end gap-3 mb-4">
+                        <button type="button" class="btn btn-secondary" data-action="filter"><i class="fa-solid fa-filter"></i> Filtrar</button>
+                        <button type="button" class="btn btn-secondary" data-action="reset"><i class="fa-solid fa-rotate-left"></i> Borrar filtros</button>
                     </div>
                 <?php endif; ?>
 
@@ -239,19 +258,19 @@ class Ileben_Api_Shortcode
                             <div class="col-6"><span class="ileben-k"><i class="fa-solid fa-dollar-sign"></i> Precios</span>
                                 <span class="ileben-p" data-field="precio_base"></span>
                             </div>
-                            <div class="col-6"><span class="ileben-k">&nbsp;</span>
-                                <a class="btn btn-primary" data-field="cotizar_btn" data-bs-toggle="tooltip" data-bs-title="Ir al Cotizador" href="#" target="_blank" rel="noopener">
-                                    <i class="fa-solid fa-arrow-up-right-from-square"></i> 
-                                    Cotizar
-                                </a>
+                            <div class="col-6 text-end"><span class="ileben-k">&nbsp;</span>
+                                <div class="btn-group" role="group" aria-label="Acciones">
+                                    <a class="btn btn-primary" data-field="cotizar_btn" data-bs-toggle="tooltip" data-bs-title="Ir al Cotizador" href="#" target="_blank" rel="noopener">
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i> 
+                                        Cotizar
+                                    </a>
+                                    <a class="btn btn-secondary" data-field="brochure_btn" data-bs-toggle="tooltip" data-bs-title="Descargar brochure" href="#" target="_blank" rel="noopener" download>
+                                        <i class="fa-regular fa-file-lines"></i> 
+                                        Brochure
+                                    </a>
+                                </div>
                             </div>
-                        </div>
-                        <div class="ileben-actions">                            
-                            <a class="btn btn-outline-teal" data-field="brochure_btn" data-bs-toggle="tooltip" data-bs-title="Descargar brochure" href="#" target="_blank" rel="noopener" download>
-                                <i class="fa-regular fa-file-lines"></i> 
-                                Descargar brochure
-                            </a>
-                        </div>
+                        </div>                        
                     </div>
                 </div>
                 <script type="application/json" id="<?php echo esc_attr($instance); ?>-data"><?php echo $json_payload; ?></script>
@@ -334,13 +353,14 @@ class Ileben_Api_Shortcode
     {
         check_ajax_referer('ileben_api_filter_plantas', 'nonce');
 
+        $tipologias = $this->sanitize_text_array($_POST['tipologia'] ?? array());
+        $plantas = $this->sanitize_text_array($_POST['planta_label'] ?? array());
+        $pisos = $this->sanitize_text_array($_POST['piso'] ?? array());
+
         $filters = array(
             'estado' => sanitize_text_field($_POST['estado'] ?? ''),
-            'tipologia' => sanitize_text_field($_POST['tipologia'] ?? ''),
-            'planta_label' => sanitize_text_field($_POST['planta_label'] ?? ''),
             'orderby' => sanitize_text_field($_POST['orderby'] ?? ''),
         );
-        $selected_piso = sanitize_text_field($_POST['piso'] ?? '');
 
         $page = (int) ($_POST['page'] ?? 1);
         $page = max(1, $page);
@@ -348,14 +368,29 @@ class Ileben_Api_Shortcode
         $per_page = (int) ($_POST['per_page'] ?? 100);
         $per_page = max(1, min(5000, $per_page));
 
-        // Fetch full filtered set (bounded) to support piso filtering and consistent paging.
+        // Fetch full base set (bounded) and apply multi-filters in PHP.
         $full_result = $this->repository->query($filters, 1, 5000);
         $items = is_array($full_result['items']) ? $full_result['items'] : array();
 
-        if ($selected_piso !== '') {
-            $items = array_values(array_filter($items, function ($item) use ($selected_piso) {
+        if (! empty($tipologias)) {
+            $items = array_values(array_filter($items, function ($item) use ($tipologias) {
+                $tipologia = (string) ($item['tipologia'] ?? '');
+                return in_array($tipologia, $tipologias, true);
+            }));
+        }
+
+        if (! empty($plantas)) {
+            $items = array_values(array_filter($items, function ($item) use ($plantas) {
                 $planta = (string) ($item['planta_label'] ?? '');
-                return $this->infer_piso_from_planta_label($planta) === $selected_piso;
+                return in_array($planta, $plantas, true);
+            }));
+        }
+
+        if (! empty($pisos)) {
+            $items = array_values(array_filter($items, function ($item) use ($pisos) {
+                $planta = (string) ($item['planta_label'] ?? '');
+                $piso = $this->infer_piso_from_planta_label($planta);
+                return in_array($piso, $pisos, true);
             }));
         }
 
@@ -385,6 +420,27 @@ class Ileben_Api_Shortcode
             'pages' => $pages,
             'has_more' => $page < $pages,
         ));
+    }
+
+    private function sanitize_text_array($values)
+    {
+        if (! is_array($values)) {
+            if ($values === null || $values === '') {
+                return array();
+            }
+
+            $values = array($values);
+        }
+
+        $clean_values = array();
+        foreach ($values as $value) {
+            $clean = sanitize_text_field((string) $value);
+            if ($clean !== '') {
+                $clean_values[] = $clean;
+            }
+        }
+
+        return array_values(array_unique($clean_values));
     }
 
     private function get_default_cotiza_url()
