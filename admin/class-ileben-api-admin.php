@@ -1181,12 +1181,17 @@ class Ileben_Api_Admin
 
     private function log_sync($message)
     {
+        if(!WP_DEBUG_LOG){
+            return;
+        }
+
         $log_dir = ILEBEN_API_PATH . 'logs';
         if (! file_exists($log_dir)) {
             @mkdir($log_dir, 0755, true);
         }
-
+        /** @disregard gmdate */
         $log_file = $log_dir . DIRECTORY_SEPARATOR . 'sync-' . gmdate('Y-m-d') . '.log';
+        /** @disregard gmdate */
         $timestamp = gmdate('Y-m-d H:i:s');
         $line = "[{$timestamp}] {$message}\n";
 
