@@ -118,6 +118,7 @@ class Ileben_Api_Shortcode
         $filters = array(
             'estado' => sanitize_text_field($_GET['ip_estado'] ?? ''),
             'tipologia' => sanitize_text_field($_GET['ip_tipologia'] ?? ''),
+            'tipo_producto' => sanitize_text_field($_GET['ip_tipo_producto'] ?? ''),
             'planta_label' => sanitize_text_field($_GET['ip_planta'] ?? ''),
             'piso' => sanitize_text_field($_GET['ip_piso'] ?? ''),
             'orderby' => sanitize_text_field($_GET['ip_orderby'] ?? $atts['orderby']),
@@ -128,6 +129,7 @@ class Ileben_Api_Shortcode
 
         $items = is_array($result['items']) ? $result['items'] : array();
         $tipologias = array();
+        $tipos_producto = array();
         $plantas = array();
         $pisos = array();
         $total_plantas = isset($result['total']) ? (int) $result['total'] : count($items);
@@ -136,6 +138,7 @@ class Ileben_Api_Shortcode
         $option_filters = array(
             'estado' => $filters['estado'] ?? '',
             'orderby' => $filters['orderby'] ?? '',
+            'tipo_producto' => $filters['tipo_producto'] ?? '',
         );
         $option_count_result = $this->repository->query($option_filters, 1, 1);
         $option_total = isset($option_count_result['total']) ? (int) $option_count_result['total'] : count($items);
@@ -145,11 +148,15 @@ class Ileben_Api_Shortcode
 
         foreach ($option_items as $item) {
             $tipologia = trim((string) ($item['tipologia'] ?? ''));
+            $tipo_producto = trim((string) ($item['tipo_producto'] ?? ''));
             $planta = trim((string) ($item['planta_label'] ?? ''));
             $piso = $this->infer_piso_from_planta_label($planta);
 
             if ($tipologia !== '') {
                 $tipologias[$tipologia] = $tipologia;
+            }
+            if ($tipo_producto !== '') {
+                $tipos_producto[$tipo_producto] = $tipo_producto;
             }
             if ($planta !== '') {
                 $plantas[$planta] = $planta;
@@ -160,6 +167,7 @@ class Ileben_Api_Shortcode
         }
 
         natcasesort($tipologias);
+        natcasesort($tipos_producto);
         natcasesort($plantas);
         natcasesort($pisos);
 
@@ -172,9 +180,10 @@ class Ileben_Api_Shortcode
         }
 
         $default_cotiza_url = $this->get_default_cotiza_url();
+        $show_cover_image = $this->should_show_cover_image();
         $items_payload = array();
         foreach ($items as $item) {
-            $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url);
+            $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url, $show_cover_image);
         }
         $json_payload = wp_json_encode(array_values($items_payload));
 
@@ -194,26 +203,34 @@ class Ileben_Api_Shortcode
                 <div class="alert alert-light border">No se encontraron plantas disponibles.</div>
             <?php else : ?>
                 <?php if ($atts['mostrar_filtros'] === '1') : ?>
-                    <div class="ileben-top-filters d-flex flex-wrap justify-content-start gap-3 mb-4">
-                        <div class="ileben-filter-title me-auto">Selecciona filtro</div>
-                        <select class="ileben-filter-select" multiple data-filter="tipologia">
-                            <option value="">Todas las tipologias</option>
-                            <?php foreach ($tipologias as $tipologia) : ?>
-                                <option value="<?php echo esc_attr($tipologia); ?>"><?php echo esc_html($tipologia); ?></option>
-                            <?php endforeach; ?>
-                        </select>                        
-                        <select class="ileben-filter-select" multiple data-filter="piso">
-                            <option value="">Todos los pisos</option>
-                            <?php foreach ($pisos as $piso) : ?>
-                                <option value="<?php echo esc_attr($piso); ?>" <?php selected((string) ($filters['piso'] ?? ''), (string) $piso); ?>>Piso <?php echo esc_html($piso); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <select class="ileben-filter-select" data-filter="planta_label">
-                            <option value="">Todas las plantas</option>
-                            <?php foreach ($plantas as $planta) : ?>
-                                <option value="<?php echo esc_attr($planta); ?>"><?php echo esc_html($planta); ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                    <div class="ileben-top-filters row mb-4">
+                        <div class="ileben-filter-title col-md-5 col-12">Selecciona filtro</div>
+                        <div class="filtros d-flex flex-wrap gap-2 col-md-7 col-12">
+                            <select class="ileben-filter-select" multiple data-filter="tipologia">
+                                <option value="">Todas las tipologias</option>
+                                <?php foreach ($tipologias as $tipologia) : ?>
+                                    <option value="<?php echo esc_attr($tipologia); ?>"><?php echo esc_html($tipologia); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <select class="ileben-filter-select" multiple data-filter="tipo_producto">
+                                <option value="">Todos los tipos de producto</option>
+                                <?php foreach ($tipos_producto as $tipo_producto) : ?>
+                                    <option value="<?php echo esc_attr($tipo_producto); ?>"><?php echo esc_html($tipo_producto); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <select class="ileben-filter-select" multiple data-filter="piso">
+                                <option value="">Todos los pisos</option>
+                                <?php foreach ($pisos as $piso) : ?>
+                                    <option value="<?php echo esc_attr($piso); ?>" <?php selected((string) ($filters['piso'] ?? ''), (string) $piso); ?>>Piso <?php echo esc_html($piso); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <select class="ileben-filter-select" data-filter="planta_label">
+                                <option value="">Todas las plantas</option>
+                                <?php foreach ($plantas as $planta) : ?>
+                                    <option value="<?php echo esc_attr($planta); ?>"><?php echo esc_html($planta); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </div>
                     <div class="d-flex flex-wrap justify-content-end gap-3 mb-4">
                         <button type="button" class="btn btn-secondary" data-action="filter"><i class="fa-solid fa-filter"></i> Filtrar</button>
@@ -288,18 +305,22 @@ class Ileben_Api_Shortcode
         return ob_get_clean();
     }
 
-    private function map_showcase_item($item, $default_cotiza_url = '')
+    private function map_showcase_item($item, $default_cotiza_url = '', $show_cover_image = true)
     {
         $fallback_image = ILEBEN_API_URL . 'assets/img/logo.png';
-        $image = $fallback_image;
-        
-        $foto_portada = (string) ($item['foto_portada'] ?? '');
-        if ($foto_portada !== '') {
-            $candidate = esc_url_raw($foto_portada);
-            if ($candidate !== '') {
-                $image = $candidate;
-            }
+        $cover_image = $this->normalize_frontend_url((string) ($item['foto_portada'] ?? ''));
+        $interior_image = $this->normalize_frontend_url((string) ($item['foto_interior'] ?? ''));
+        $fallback_image = $this->normalize_frontend_url($fallback_image);
+
+        if ($cover_image === '') {
+            $cover_image = $fallback_image;
         }
+
+        if ($interior_image === '') {
+            $interior_image = $cover_image !== '' ? $cover_image : $fallback_image;
+        }
+
+        $image = $show_cover_image ? $cover_image : $interior_image;
 
         $dormitorios = (int) ($item['dormitorios'] ?? 0);
         $banos = (int) ($item['banos'] ?? 0);
@@ -314,15 +335,8 @@ class Ileben_Api_Shortcode
             }
         }
 
-        $image = $this->normalize_frontend_url($image);
-        $interior_image = $this->normalize_frontend_url((string) ($item['foto_interior'] ?? ''));
-        $fallback_image = $this->normalize_frontend_url($fallback_image);
         $cotizacion_url = $this->normalize_frontend_url($cotizacion_url);
         $brochure = $this->normalize_frontend_url((string) ($item['brochure'] ?? ''));
-
-        if ($interior_image === '') {
-            $interior_image = $image;
-        }
 
         return array(
             'id' => (int) ($item['id'] ?? 0),
@@ -330,6 +344,7 @@ class Ileben_Api_Shortcode
             'nombre' => (string) ($item['nombre'] ?? ''),
             'descripcion' => (string) ($item['descripcion'] ?? ''),
             'tipologia' => (string) ($item['tipologia'] ?? ''),
+            'tipo_producto' => (string) ($item['tipo_producto'] ?? ''),
             'product_code' => (string) ($item['planta_label'] ?? ''),
             'planta_label' => (string) ($item['planta_label'] ?? ''),
             'piso' => $this->infer_piso_from_planta_label((string) ($item['planta_label'] ?? '')),
@@ -354,6 +369,7 @@ class Ileben_Api_Shortcode
         check_ajax_referer('ileben_api_filter_plantas', 'nonce');
 
         $tipologias = $this->sanitize_text_array($_POST['tipologia'] ?? array());
+        $tipos_producto = $this->sanitize_text_array($_POST['tipo_producto'] ?? array());
         $plantas = $this->sanitize_text_array($_POST['planta_label'] ?? array());
         $pisos = $this->sanitize_text_array($_POST['piso'] ?? array());
 
@@ -376,6 +392,13 @@ class Ileben_Api_Shortcode
             $items = array_values(array_filter($items, function ($item) use ($tipologias) {
                 $tipologia = (string) ($item['tipologia'] ?? '');
                 return in_array($tipologia, $tipologias, true);
+            }));
+        }
+
+        if (! empty($tipos_producto)) {
+            $items = array_values(array_filter($items, function ($item) use ($tipos_producto) {
+                $tipo_producto = (string) ($item['tipo_producto'] ?? '');
+                return in_array($tipo_producto, $tipos_producto, true);
             }));
         }
 
@@ -403,9 +426,10 @@ class Ileben_Api_Shortcode
         $paged_items = array_slice($items, $offset, $per_page);
 
         $default_cotiza_url = $this->get_default_cotiza_url();
+        $show_cover_image = $this->should_show_cover_image();
         $items_payload = array();
         foreach ($paged_items as $item) {
-            $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url);
+            $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url, $show_cover_image);
         }
 
         $pages = (int) ceil($total_filtered / $per_page);
@@ -452,6 +476,17 @@ class Ileben_Api_Shortcode
         $api_client = new Ileben_Api_Client();
         $settings = $api_client->get_settings();
         return esc_url_raw((string) ($settings['cotiza_url'] ?? ''));
+    }
+
+    private function should_show_cover_image()
+    {
+        if (! class_exists('Ileben_Api_Client')) {
+            return true;
+        }
+
+        $api_client = new Ileben_Api_Client();
+        $settings = $api_client->get_settings();
+        return ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']);
     }
 
     private function normalize_frontend_url($url)

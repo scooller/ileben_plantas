@@ -2,7 +2,7 @@
 /**
  * Plugin Name: API Leben
  * Description: Gestiona plantas de edificios con CRUD, importacion CSV, sincronizacion API y shortcode con filtros.
- * Version: 0.1.4
+ * Version: 0.1.5
  * Author: iLeben
  * License: GPL-3.0-or-later
  * Text Domain: ileben-api
@@ -12,11 +12,11 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('ILEBEN_API_VERSION', '0.1.4');
+define('ILEBEN_API_VERSION', '0.1.5');
 define('ILEBEN_API_FILE', __FILE__);
 define('ILEBEN_API_PATH', plugin_dir_path(__FILE__));
 define('ILEBEN_API_URL', plugin_dir_url(__FILE__));
-define('ILEBEN_API_DB_VERSION', '1.4.0');
+define('ILEBEN_API_DB_VERSION', '1.5.0');
 define('ILEBEN_API_CAPABILITY', 'manage_ileben_api');
 
 require_once ILEBEN_API_PATH . 'includes/class-ileben-api-plugin.php';

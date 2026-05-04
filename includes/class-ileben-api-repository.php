@@ -145,6 +145,28 @@ class Ileben_Api_Repository
         );
     }
 
+    public function get_tipo_producto_options()
+    {
+        global $wpdb;
+
+        $sql = "SELECT DISTINCT tipo_producto FROM {$this->table_name} WHERE tipo_producto IS NOT NULL AND tipo_producto <> '' ORDER BY tipo_producto ASC";
+        $rows = $wpdb->get_col($sql);
+
+        if (! is_array($rows)) {
+            return array();
+        }
+
+        $options = array();
+        foreach ($rows as $row) {
+            $value = sanitize_text_field((string) $row);
+            if ($value !== '') {
+                $options[$value] = $value;
+            }
+        }
+
+        return $options;
+    }
+
     public function query($filters = array(), $page = 1, $per_page = 12)
     {
         global $wpdb;
@@ -167,6 +189,11 @@ class Ileben_Api_Repository
         if ($filters['tipologia'] ?? '') {
             $where[] = 'tipologia = %s';
             $params[] = sanitize_text_field($filters['tipologia']);
+        }
+
+        if ($filters['tipo_producto'] ?? '') {
+            $where[] = 'tipo_producto = %s';
+            $params[] = sanitize_text_field($filters['tipo_producto']);
         }
 
         if ($filters['planta_label'] ?? '') {
@@ -296,6 +323,7 @@ class Ileben_Api_Repository
             'dormitorios' => max(0, (int) ($data['dormitorios'] ?? 0)),
             'metros_cuadrados' => (float) ($data['metros_cuadrados'] ?? 0),
             'tipologia' => sanitize_text_field($data['tipologia'] ?? ''),
+            'tipo_producto' => sanitize_text_field($data['tipo_producto'] ?? ''),
             'planta_label' => sanitize_text_field($data['planta_label'] ?? ''),
             'orientacion' => sanitize_text_field($data['orientacion'] ?? ''),
             'superficie_interior' => (float) ($data['superficie_interior'] ?? 0),
@@ -322,6 +350,7 @@ class Ileben_Api_Repository
             'dormitorios' => '%d',
             'metros_cuadrados' => '%f',
             'tipologia' => '%s',
+            'tipo_producto' => '%s',
             'planta_label' => '%s',
             'orientacion' => '%s',
             'superficie_interior' => '%f',

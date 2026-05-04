@@ -142,8 +142,11 @@ class Ileben_Api_Admin
         $filters = array(
             'search' => sanitize_text_field($_GET['s'] ?? ''),
             'estado' => sanitize_text_field($_GET['estado'] ?? ''),
+            'tipo_producto' => sanitize_text_field($_GET['tipo_producto'] ?? ''),
             'orderby' => sanitize_text_field($_GET['orderby'] ?? ''),
         );
+
+        $tipo_producto_options = $this->repository->get_tipo_producto_options();
 
         $result = $this->repository->query($filters, $page, 20);
 
@@ -164,16 +167,25 @@ class Ileben_Api_Admin
             <div class="card mb-4"><div class="card-body">
                 <form class="row g-3" method="get">
                     <input type="hidden" name="page" value="ileben-api" />
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label">Buscar</label>
                         <input class="form-control" type="text" name="s" value="<?php echo esc_attr($filters['search']); ?>" />
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label">Estado</label>
                         <select class="form-select" name="estado">
                             <option value="">Todos</option>
                             <?php foreach ($this->repository->get_states() as $state_key => $state_label): ?>
                                 <option value="<?php echo esc_attr($state_key); ?>" <?php echo selected($filters['estado'], $state_key, false); ?>><?php echo esc_html($state_label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Tipo de planta</label>
+                        <select class="form-select" name="tipo_producto">
+                            <option value="">Todos</option>
+                            <?php foreach ($tipo_producto_options as $tipo_producto): ?>
+                                <option value="<?php echo esc_attr($tipo_producto); ?>" <?php echo selected($filters['tipo_producto'], $tipo_producto, false); ?>><?php echo esc_html($tipo_producto); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -195,11 +207,11 @@ class Ileben_Api_Admin
             <div class="card"><div class="table-responsive">
                 <table class="table table-striped table-hover mb-0">
                     <thead>
-                        <tr><th>ID</th><th>Nombre</th><th>Precio Base</th><th>Precio Lista</th><th>Banos</th><th>Dormitorios</th><th>Estado</th><th>Acciones</th></tr>
+                        <tr><th>ID</th><th>Nombre</th><th>Tipo de planta</th><th>Precio Base</th><th>Precio Lista</th><th>Banos</th><th>Dormitorios</th><th>Estado</th><th>Acciones</th></tr>
                     </thead>
                     <tbody>
                         <?php if (empty($result['items'])): ?>
-                            <tr><td colspan="8" class="text-center py-4">No hay plantas registradas.</td></tr>
+                            <tr><td colspan="9" class="text-center py-4">No hay plantas registradas.</td></tr>
                         <?php else: ?>
                             <?php foreach ($result['items'] as $item): ?>
                                 <?php
@@ -214,6 +226,7 @@ class Ileben_Api_Admin
                                 <tr>
                                     <td><?php echo (int) $item['id']; ?></td>
                                     <td><?php echo esc_html($item['nombre']); ?></td>
+                                    <td><?php echo esc_html((string) ($item['tipo_producto'] ?? '-')); ?></td>
                                     <td>$ <?php echo number_format((float) ($item['precio_base'] ?? 0), 2, '.', ','); ?></td>
                                     <td>$ <?php echo number_format((float) ($item['precio_lista'] ?? $item['precio'] ?? 0), 2, '.', ','); ?></td>
                                     <td><?php echo (int) $item['banos']; ?></td>
@@ -572,9 +585,16 @@ class Ileben_Api_Admin
                             </div>
 
                             <div class="col-md-4 d-flex align-items-end">
-                                <div class="form-check mb-2">
-                                    <input class="form-check-input" type="checkbox" id="ileben_cron_enabled" name="cron_enabled" value="1" <?php checked((int) ($settings['cron_enabled'] ?? 0), 1, true); ?> />
-                                    <label class="form-check-label" for="ileben_cron_enabled">Activar sincronizacion horaria (CRON)</label>
+                                <div class="mb-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="ileben_cron_enabled" name="cron_enabled" value="1" <?php checked((int) ($settings['cron_enabled'] ?? 0), 1, true); ?> />
+                                        <label class="form-check-label" for="ileben_cron_enabled">Activar sincronizacion horaria (CRON)</label>
+                                    </div>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" id="ileben_show_cover_image" name="show_cover_image" value="1" <?php checked((int) ($settings['show_cover_image'] ?? 1), 1, true); ?> />
+                                        <label class="form-check-label" for="ileben_show_cover_image">Mostrar foto de portada</label>
+                                    </div>
+                                    <small class="text-muted d-block mt-1">Si se desactiva, se usara la imagen interior como imagen principal.</small>
                                 </div>
                             </div>
 
@@ -1066,6 +1086,7 @@ class Ileben_Api_Admin
             'cotiza_url' => esc_url_raw(wp_unslash($_POST['cotiza_url'] ?? '')),
             'timeout' => (int) ($_POST['timeout'] ?? 15),
             'cron_enabled' => ! empty($_POST['cron_enabled']) ? 1 : 0,
+            'show_cover_image' => ! empty($_POST['show_cover_image']) ? 1 : 0,
         );
 
         if (empty($payload['api_endpoint'])) {

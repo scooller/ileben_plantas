@@ -152,15 +152,7 @@ class Ileben_Api_Client
                 continue;
             }
 
-            if (isset($decoded['plants']) && is_array($decoded['plants'])) {
-                return $decoded['plants'];
-            }
-
-            if ($visited_pages === 0 && is_array($decoded)) {
-                return $decoded;
-            }
-
-            break;
+            return new WP_Error('api_format_error', 'La respuesta de plantas no cumple el formato esperado (data/next_page_url).');
         }
 
         if ($visited_pages >= self::MAX_API_PAGES) {
@@ -284,6 +276,7 @@ class Ileben_Api_Client
             'cotiza_url' => '',
             'timeout' => 15,
             'cron_enabled' => 0,
+            'show_cover_image' => 1,
         );
     }
 
@@ -298,6 +291,7 @@ class Ileben_Api_Client
             'cotiza_url' => esc_url_raw(trim((string) ($settings['cotiza_url'] ?? ''))),
             'timeout' => min(120, max(5, (int) ($settings['timeout'] ?? 15))),
             'cron_enabled' => ! empty($settings['cron_enabled']) ? 1 : 0,
+            'show_cover_image' => ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']) ? 1 : 0,
         );
     }
 
@@ -307,15 +301,20 @@ class Ileben_Api_Client
             return array();
         }
 
-        $dormitorios = $this->extract_number_from_programa($item['programa'] ?? '');
-        $banos = $this->extract_number_from_programa($item['programa2'] ?? '');
-        
-        $estado = 'no_disponible';
-        if (! empty($item['is_active'])) {
-            $estado = empty($item['active_reservation']) ? 'disponible' : 'no_disponible';
+        $programa = (string) ($item['programa2'] ?? $item['programa'] ?? '');
+        $dormitorios = $this->extract_programa_rooms($programa, 'd');
+        $banos = $this->extract_programa_rooms($programa, 'b');
+
+        $estado = 'disponible';
+        if (empty($item['is_available']) || ! empty($item['unidad_sale'])) {
+            $estado = 'no_disponible';
         }
 
-        $descripcion = '';
+        if (! empty($item['is_paid']) || ! empty($item['completed_reservation']) || ! empty($item['completed_payment'])) {
+            $estado = 'no_disponible';
+        }
+
+        $descripcion = (string) ($item['descripcion'] ?? '');
         if (isset($item['proyecto']['descripcion'])) {
             $descripcion = (string) $item['proyecto']['descripcion'];
         }
@@ -323,77 +322,98 @@ class Ileben_Api_Client
         $precio_base = (float) ($item['precio_base'] ?? 0);
         $precio_lista = (float) ($item['precio_lista'] ?? 0);
         $precio = $precio_lista > 0 ? $precio_lista : $precio_base;
-        $cover_image = $this->extract_image_url($item, 'cover_image_url', 'cover_image_media');
-        $interior_image = $this->extract_image_url($item, 'interior_image_url', 'interior_image_media');
+        if ($precio <= 0) {
+            $precio = $precio_base;
+        }
+
+        $cover_image = $this->extract_image_url(
+            $item,
+            array('cover_image_url', 'imageUrl', 'proyectoImageUrl'),
+            array('cover_image_media', 'interior_image_media')
+        );
+        $interior_image = $this->extract_image_url(
+            $item,
+            array('interior_image_url', 'detailImageUrl', 'salesforce_interior_image_url'),
+            array('interior_image_media', 'cover_image_media')
+        );
+
+        $nombre = sanitize_text_field((string) ($item['name'] ?? ''));
+        $tipologia = sanitize_text_field((string) ($item['programa'] ?? ''));
+        $tipo_producto = sanitize_text_field((string) ($item['tipo_producto'] ?? ''));
+        $planta_label = sanitize_text_field((string) ($item['name'] ?? ''));
 
         return array(
             'external_id' => (string) ($item['salesforce_product_id'] ?? ''),
-            'nombre' => (string) ($item['name'] ?? ''),
+            'nombre' => $nombre,
             'descripcion' => $descripcion,
             'precio' => $precio,
             'precio_base' => $precio_base,
             'precio_lista' => $precio_lista,
             'dormitorios' => $dormitorios,
             'banos' => $banos,
-            'metros_cuadrados' => (float) ($item['superficie_vendible'] ?? $item['superficie_total_principal'] ?? 0),
+            'metros_cuadrados' => (float) ($item['superficie_total_principal'] ?? 0),
             'estado' => $estado,
-            'tipologia' => (string) ($item['programa'] ?? ''),
-            'planta_label' => (string) ($item['product_code'] ?? ''),
+            'tipologia' => $tipologia,
+            'tipo_producto' => $tipo_producto,
+            'planta_label' => $planta_label,
             'orientacion' => (string) ($item['orientacion'] ?? ''),
-            // Keep DB compatibility by storing util surface in the existing column.
             'superficie_interior' => (float) ($item['superficie_util'] ?? $item['superficie_interior'] ?? 0),
             'terraza_m2' => (float) ($item['superficie_terraza'] ?? 0),
             'superficie_total' => (float) ($item['superficie_total_principal'] ?? 0),
             'foto_portada' => $cover_image,
             'foto_interior' => $interior_image,
-            'cotizacion_url' => (string) ($item['cotizacion_url'] ?? $item['cotiza_url'] ?? ''),
+            'cotizacion_url' => '',
         );
     }
 
-    private function extract_image_url($item, $direct_key, $media_key)
+    private function extract_image_url($item, $direct_keys, $media_keys)
     {
-        $direct_url = esc_url_raw((string) ($item[$direct_key] ?? ''));
-        if ($direct_url !== '') {
-            return $direct_url;
+        $keys = is_array($direct_keys) ? $direct_keys : array($direct_keys);
+        foreach ($keys as $direct_key) {
+            $direct_url = esc_url_raw((string) ($item[$direct_key] ?? ''));
+            if ($direct_url !== '') {
+                return $direct_url;
+            }
         }
 
-        $media = $item[$media_key] ?? null;
-        if (! is_array($media)) {
-            return '';
-        }
+        $media_key_list = is_array($media_keys) ? $media_keys : array($media_keys);
+        foreach ($media_key_list as $media_key) {
+            $media = $item[$media_key] ?? null;
+            if (! is_array($media)) {
+                continue;
+            }
 
-        $candidates = array(
-            (string) ($media['url'] ?? ''),
-            (string) ($media['large_url'] ?? ''),
-            (string) ($media['medium_url'] ?? ''),
-            (string) ($media['thumbnail_url'] ?? ''),
-        );
+            $candidates = array(
+                (string) ($media['url'] ?? ''),
+                (string) ($media['large_url'] ?? ''),
+                (string) ($media['medium_url'] ?? ''),
+                (string) ($media['thumbnail_url'] ?? ''),
+            );
 
-        foreach ($candidates as $candidate) {
-            $candidate = esc_url_raw($candidate);
-            if ($candidate !== '') {
-                return $candidate;
+            foreach ($candidates as $candidate) {
+                $candidate = esc_url_raw($candidate);
+                if ($candidate !== '') {
+                    return $candidate;
+                }
             }
         }
 
         return '';
     }
 
-    private function extract_number_from_programa($programa)
+    private function extract_programa_rooms($programa, $type)
     {
-        if (empty($programa)) {
+        $programa = strtolower((string) $programa);
+        $type = strtolower((string) $type);
+        if ($programa === '' || ($type !== 'd' && $type !== 'b')) {
             return 0;
         }
 
-        if (preg_match('/(\d+)/', (string) $programa, $matches)) {
+        if (preg_match('/(\d+)\s*' . preg_quote($type, '/') . '\b/', $programa, $matches)) {
             return (int) $matches[1];
-        }
-
-        $programa_lower = strtolower((string) $programa);
-        if (strpos($programa_lower, 'st') !== false || strpos($programa_lower, 'studio') !== false) {
-            return 0;
         }
 
         return 0;
     }
+
 }

@@ -71,6 +71,7 @@ class Ileben_Api_Plugin
             dormitorios INT UNSIGNED NOT NULL DEFAULT 0,
             metros_cuadrados DECIMAL(10,2) NOT NULL DEFAULT 0,
             tipologia VARCHAR(120) NULL,
+                tipo_producto VARCHAR(120) NULL,
             planta_label VARCHAR(120) NULL,
             orientacion VARCHAR(60) NULL,
             superficie_interior DECIMAL(10,2) NULL,
@@ -91,6 +92,7 @@ class Ileben_Api_Plugin
             KEY idx_banos (banos),
             KEY idx_dormitorios (dormitorios),
             KEY idx_estado (estado),
+                KEY idx_tipo_producto (tipo_producto),
             KEY idx_nombre (nombre)
         ) {$charset_collate};";
 

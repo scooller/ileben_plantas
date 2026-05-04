@@ -51,6 +51,7 @@
         var nextControl = wrapper.querySelector('.carousel-control-next');
         // var indicators = document.getElementById(wrapper.id + '-indicators');
         var tipologiaSelect = wrapper.querySelector('[data-filter="tipologia"]');
+        var tipoProductoSelect = wrapper.querySelector('[data-filter="tipo_producto"]');
         var plantaSelect = wrapper.querySelector('[data-filter="planta_label"]');
         var pisoSelect = wrapper.querySelector('[data-filter="piso"]');
         var filterBtn = wrapper.querySelector('[data-action="filter"]');
@@ -79,7 +80,7 @@
         var brochureBtn = wrapper.querySelector('[data-field="brochure_btn"]');
         var cotizarBtn = wrapper.querySelector('[data-field="cotizar_btn"]');
         var visibleItems = allItems.slice();
-        var currentFilters = { tipologia: [], planta_label: [], piso: [] };
+        var currentFilters = { tipologia: [], tipo_producto: [], planta_label: [], piso: [] };
         var ajaxPage = 1;
         var ajaxHasMore = false;
         var ajaxLoadingMore = false;
@@ -223,6 +224,9 @@
             (filters.tipologia || []).forEach(function (value) {
                 body.append('tipologia[]', value);
             });
+            (filters.tipo_producto || []).forEach(function (value) {
+                body.append('tipo_producto[]', value);
+            });
             (filters.planta_label || []).forEach(function (value) {
                 body.append('planta_label[]', value);
             });
@@ -364,10 +368,12 @@
             var useLoader = showLoader !== false;
             var shouldUseAjax = useAjax === true;
             var tipologia = getSelectValues(tipologiaSelect);
+            var tipoProducto = getSelectValues(tipoProductoSelect);
             var planta = getSelectValues(plantaSelect);
             var piso = getSelectValues(pisoSelect);
             currentFilters = {
                 tipologia: tipologia,
+                tipo_producto: tipoProducto,
                 planta_label: planta,
                 piso: piso
             };
@@ -377,10 +383,11 @@
                 
                 visibleItems = allItems.filter(function (item) {
                     var tipologiaOk = !tipologia.length || tipologia.indexOf(item.tipologia) !== -1;
+                    var tipoProductoOk = !tipoProducto.length || tipoProducto.indexOf(item.tipo_producto) !== -1;
                     var plantaCode = item.product_code || item.planta_label;
                     var plantaOk = !planta.length || planta.indexOf(plantaCode) !== -1;
                     var pisoOk = !piso.length || piso.indexOf(String(item.piso || '')) !== -1;
-                    return tipologiaOk && plantaOk && pisoOk;
+                    return tipologiaOk && tipoProductoOk && plantaOk && pisoOk;
                 });
 
                 renderCarousel(visibleItems);
@@ -474,6 +481,9 @@
                 if (tipologiaSelect) {
                     clearSelect(tipologiaSelect);
                 }
+                if (tipoProductoSelect) {
+                    clearSelect(tipoProductoSelect);
+                }
                 if (pisoSelect) {
                     clearSelect(pisoSelect);
                 }
@@ -523,6 +533,10 @@
             tipologiaSelect.addEventListener('change', onFilterChange);
             initSelect2(tipologiaSelect);
         }
+        if (tipoProductoSelect) {
+            tipoProductoSelect.addEventListener('change', onFilterChange);
+            initSelect2(tipoProductoSelect);
+        }
         if (plantaSelect) {
             plantaSelect.addEventListener('change', onFilterChange);
             initSelect2(plantaSelect);
@@ -543,6 +557,7 @@
             resetBtn.addEventListener('click', function (event) {
                 event.preventDefault();
                 clearSelect(tipologiaSelect);
+                clearSelect(tipoProductoSelect);
                 clearSelect(plantaSelect);
                 clearSelect(pisoSelect);
                 applyFilters(true, true);

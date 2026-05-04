@@ -2,8 +2,14 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
+Version actual: 0.1.5
+
 ## Novedades recientes
 
+- Migracion a estructura nueva de API solamente: sincronizacion valida unicamente respuestas paginadas con `data` y `next_page_url`.
+- Nuevo filtro frontend por `tipo_producto` (ademas de tipologia, piso y planta).
+- Persistencia de `tipo_producto` en base de datos con indice dedicado para consultas.
+- Logica de disponibilidad alineada al payload nuevo: `is_available`, `unidad_sale`, `is_paid`, `completed_reservation` y `completed_payment`.
 - Sincronizacion por proyecto robusta: se usa el `proyecto_id` seleccionado y se conserva en todas las paginas de la API (`next_page_url`).
 - Confirmacion cuando `proyecto_id` esta vacio: se advierte que se importaran todas las plantas.
 - Depuracion por proyecto en sync: cuando hay `proyecto_id`, se eliminan registros locales fuera del proyecto sincronizado.
@@ -15,9 +21,9 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 ## Caracteristicas principales
 
 - **Sincronizacion API**: Conexion con endpoint REST `/api/v1/plantas` con filtrado por proyecto
-- **Gestion centralizada**: Tabla personalizada con 18 campos incluyendo datos de superficie, orientacion y estado
+- **Gestion centralizada**: Tabla personalizada con 19 campos incluyendo datos de superficie, orientacion, tipo de producto y estado
 - **Importacion CSV**: Carga masiva con upsert por `external_id` y descarga de CSV de ejemplo
-- **Frontend moderno**: Shortcode con carousel, filtros dinamicos (tipologia/piso/planta), panel de detalles y lightbox
+- **Frontend moderno**: Shortcode con carousel, filtros dinamicos (tipologia/tipo_producto/piso/planta), panel de detalles y lightbox
 - **Cotizacion flexible**: Boton "Cotizar" por planta con fallback global desde configuracion del plugin
 - **Media Library**: Integracion nativa con biblioteca multimedia de WordPress para imagenes y brochures
 - **CRON automatico**: Sincronizacion horaria opcional configurable desde el admin del plugin
@@ -42,6 +48,7 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 	- dormitorios
 	- metros_cuadrados
 	- tipologia
+  - tipo_producto
 	- planta_label
 	- orientacion
 	- superficie_interior
@@ -64,13 +71,13 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 - Shortcode frontend con Bootstrap:
 	- [ileben_plantas]
 	- layout tipo ficha de tipologia (como cotizador)
-  - filtros por tipologia, piso y planta
+  - filtros por tipologia, tipo de producto, piso y planta
   - carrusel de plantas con panel de datos, contador "mostrando X" y carga incremental por AJAX
   - lightbox de imagen interior al hacer click en imagen principal
 
 ## Estructura
 
-- `ileben_plantas.php`: bootstrap del plugin
+- `ileben_api.php`: bootstrap del plugin
 - `includes`: core, repositorio y cliente API
 - `admin`: pantallas y handlers de administracion
 - `public`: shortcode y render frontend
@@ -82,7 +89,7 @@ Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) co
 2. Activa el plugin desde WordPress.
 3. Al activar:
 	 - se crea la tabla personalizada
-	 - se agrega el permiso `manage_ileben_plantas` a `administrator` y `editor`
+   - se agrega el permiso `manage_ileben_api` a `administrator` y `editor`
 
 ## Uso en Admin
 
@@ -124,7 +131,7 @@ Esto es util cuando trabajas con multiples proyectos y cada instalacion de WordP
 
 ### Mapeo de campos de API
 
-El plugin mapea automaticamente la respuesta de `/api/v1/plants` de la siguiente manera:
+El plugin mapea automaticamente la respuesta de `/api/v1/plantas` de la siguiente manera:
 
 | Campo Plugin | Campo API | Transformacion | Notas |
 |--------------|-----------|----------------|-------|
@@ -132,26 +139,27 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plants` de la siguiente
 | nombre | name | Directo | Numero de planta (ej: "203", "101") |
 | descripcion | proyecto.descripcion | Directo | Descripcion del proyecto padre |
 | precio | precio_lista / precio_base | Fallback | Prioriza precio_lista, sino usa precio_base |
-| dormitorios | programa | Extraccion numerica | "3D+2B" → 3, "2 dormitorios" → 2 |
-| banos | programa2 | Extraccion numerica | "3D+2B" → 3, "2 baños" → 2 |
-| metros_cuadrados | superficie_vendible / superficie_total_principal | Fallback | Superficie comercial principal |
-| estado | is_active + active_reservation | Logica booleana | "disponible" si is_active=true y active_reservation=null |
+| dormitorios | programa2 / programa | Extraccion por patron | Busca patron N+D (ej: "2D+2B" → 2) |
+| banos | programa2 / programa | Extraccion por patron | Busca patron N+B (ej: "2D+2B" → 2) |
+| metros_cuadrados | superficie_total_principal | Directo | Superficie principal total |
+| estado | is_available + unidad_sale + is_paid + completed_* | Logica booleana | Disponible solo si no hay senales de venta/reserva/pago completado |
 | tipologia | programa | Directo | Texto completo (ej: "3D+2B", "2 dormitorios") |
-| planta_label | product_code | Directo | Codigo de producto |
+| tipo_producto | tipo_producto | Directo | Tipo de unidad (ej: DEPARTAMENTO) |
+| planta_label | name | Directo | Nombre corto de unidad/planta |
 | orientacion | orientacion | Directo | Orientacion de la planta (ej: "SP", "Norte") |
 | superficie_interior | superficie_util / superficie_interior | Fallback | Prioriza superficie_util |
 | terraza_m2 | superficie_terraza | Directo | Metros cuadrados de terraza |
 | superficie_total | superficie_total_principal | Directo | Metros cuadrados totales |
-| foto_portada | cover_image_url / cover_image_media.url | Fallback | Imagen principal de la planta |
-| foto_interior | interior_image_url / interior_image_media.url | Fallback | Imagen interior para lightbox |
-| cotizacion_url | cotizacion_url / cotiza_url | Fallback | Usa URL por planta; si viene vacia, frontend usa la URL Cotizar por defecto del plugin |
+| foto_portada | cover_image_url / imageUrl / proyectoImageUrl | Fallback | Imagen principal |
+| foto_interior | interior_image_url / detailImageUrl / salesforce_interior_image_url | Fallback | Imagen interior para lightbox |
+| cotizacion_url | configuracion del plugin | Fallback | Se arma desde URL por defecto + external_id |
 
 **Campos opcionales no siempre presentes en API**:
 - `brochure` (si no viene desde API puede cargarse manualmente en admin)
 
-**Extraccion numerica de programa/programa2:**
-- El metodo `extract_number_from_programa()` extrae el primer numero encontrado en el texto
-- Ejemplos: "3D+2B" → 3, "2 dormitorios" → 2, "ST" o "studio" → 0
+**Extraccion de dormitorios y banos:**
+- El metodo de extraccion usa patrones por tipo (`D` para dormitorios, `B` para banos).
+- Ejemplo: "2D+2B" -> dormitorios=2, banos=2.
 ## Formato CSV
 
 Cabeceras esperadas:
@@ -219,7 +227,7 @@ Las imagenes de portada/interior pueden venir desde API. El brochure sigue siend
 3. Publica la pagina
 4. Los visitantes veran:
   - Carrusel de plantas con imagenes de portada
-  - Filtros por tipologia (programa), piso y planta (product_code)
+  - Filtros por tipologia (programa), tipo de producto, piso y planta
    - Panel lateral con detalles: precio, superficies, orientacion
   - Apertura de imagen interior en lightbox al hacer click en la portada
    - Boton para descargar brochure (si existe)
@@ -276,9 +284,10 @@ El plugin recorre automaticamente todas las paginas usando `next_page_url` hasta
 
 - `salesforce_product_id` → `external_id`
 - `name` → `nombre` (ej: "203")
-- `programa` → `tipologia` (ej: "3D+2B") + extrae `dormitorios` (3)
-- `programa2` → extrae `banos` (2)
-- `is_active + active_reservation` → `estado` ("disponible" o "no_disponible")
+- `programa` → `tipologia` (ej: "3D+2B")
+- `tipo_producto` → `tipo_producto`
+- `programa2 / programa` → extrae `dormitorios` y `banos` por patron `N+D` / `N+B`
+- `is_available + unidad_sale + is_paid + completed_*` → `estado` ("disponible" o "no_disponible")
 - `proyecto.descripcion` → `descripcion`
 
 ## Troubleshooting
@@ -289,7 +298,7 @@ El plugin recorre automaticamente todas las paginas usando `next_page_url` hasta
 - Guarda la configuracion e intenta sincronizar nuevamente
 
 ### La sincronizacion no trae plantas
-- Verifica que la API Laravel este corriendo: `curl http://127.0.0.1:8000/api/v1/plants`
+- Verifica que la API Laravel este corriendo: `curl http://127.0.0.1:8000/api/v1/plantas`
 - Si usas **Proyecto ID**, verifica que el proyecto tiene plantas en la base de datos
 - Revisa los logs de WordPress en caso de errores HTTP
 
@@ -299,9 +308,9 @@ El plugin recorre automaticamente todas las paginas usando `next_page_url` hasta
 - Prueba manualmente desde **Plantas → Sincronizar API** primero
 
 ### Las imagenes no se muestran en el shortcode
-- Las imagenes NO vienen de la API, debes cargarlas manualmente
-- Ve a **Plantas → Editar** y usa el boton "Seleccionar imagen"
-- Verifica que la URL de la imagen sea accesible
+- Verifica que la API este enviando `cover_image_url` o `imageUrl` para portada.
+- Verifica que la API este enviando `interior_image_url`, `detailImageUrl` o `salesforce_interior_image_url` para interior.
+- Revisa conectividad HTTPS y acceso publico a las URLs de imagen.
 
 ## Licencia
 
