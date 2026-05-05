@@ -203,7 +203,7 @@ class Ileben_Api_Client
         }
 
         $channel = sanitize_text_field((string) $channel);
-        $fields = is_array($fields) ? $fields : array();
+        $fields = $this->normalize_contact_submission_fields(is_array($fields) ? $fields : array());
 
         $payload = array(
             'channel' => $channel,
@@ -282,7 +282,6 @@ class Ileben_Api_Client
         if ($url === '' || $proyecto_id === '') {
             return $url;
         }
-
         $parts = wp_parse_url($url);
         if (! is_array($parts)) {
             return add_query_arg('proyecto_id', $proyecto_id, $url);
@@ -299,6 +298,39 @@ class Ileben_Api_Client
         }
 
         return add_query_arg('proyecto_id', $proyecto_id, $url);
+    }
+
+    private function normalize_contact_submission_fields($fields)
+    {
+        if (! is_array($fields)) {
+            return array();
+        }
+
+        $normalized_fields = array();
+        foreach ($fields as $key => $value) {
+            $field_key = sanitize_key((string) $key);
+            if ($field_key === '') {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $value = implode(', ', array_map('sanitize_text_field', $value));
+            }
+
+            $normalized_fields[$field_key] = sanitize_text_field((string) $value);
+        }
+
+        if (empty($normalized_fields['rango'])) {
+            foreach (array('rango-renta', 'rango_renta') as $alias) {
+                $alias_key = sanitize_key($alias);
+                if (! empty($normalized_fields[$alias_key])) {
+                    $normalized_fields['rango'] = $normalized_fields[$alias_key];
+                    break;
+                }
+            }
+        }
+
+        return $normalized_fields;
     }
 
     private function get_request_args($settings)
@@ -466,7 +498,7 @@ class Ileben_Api_Client
 
         $nombre = sanitize_text_field((string) ($item['name'] ?? ''));
         $tipologia = sanitize_text_field((string) ($item['programa'] ?? ''));
-        $tipo_producto = sanitize_text_field((string) ($item['tipo_producto'] ?? ''));
+        $tipo_producto = $this->normalize_tipo_producto((string) ($item['tipo_producto'] ?? ''));
         $planta_label = sanitize_text_field((string) ($item['name'] ?? ''));
 
         return array(
@@ -541,5 +573,20 @@ class Ileben_Api_Client
         }
 
         return 0;
+    }
+
+    private function normalize_tipo_producto($tipo_producto)
+    {
+        $tipo_producto = sanitize_text_field((string) $tipo_producto);
+        if ($tipo_producto === '') {
+            return '';
+        }
+
+        $normalized = strtolower(str_replace(array(' ', '_'), '-', $tipo_producto));
+        if ($normalized === 'rango' || $normalized === 'rango-renta') {
+            return 'Rango';
+        }
+
+        return $tipo_producto;
     }
 }
