@@ -31,14 +31,39 @@ class Ileben_Api_Client
     public function schedule_cron()
     {
         $settings = $this->get_settings();
+        $hours = $this->get_cron_interval_hours($settings);
+        $schedule_key = $this->get_cron_schedule_key($hours);
 
         if (! empty($settings['cron_enabled'])) {
-            if (! wp_next_scheduled('ileben_api_cron_sync')) {
-                wp_schedule_event(time() + HOUR_IN_SECONDS, 'hourly', 'ileben_api_cron_sync');
+            $event = function_exists('wp_get_scheduled_event') ? wp_get_scheduled_event('ileben_api_cron_sync') : false;
+
+            if (! $event || (isset($event->schedule) && $event->schedule !== $schedule_key)) {
+                wp_clear_scheduled_hook('ileben_api_cron_sync');
+                wp_schedule_event(time() + ($hours * HOUR_IN_SECONDS), $schedule_key, 'ileben_api_cron_sync');
             }
         } else {
             wp_clear_scheduled_hook('ileben_api_cron_sync');
         }
+    }
+
+    public function register_cron_schedules($schedules)
+    {
+        if (! is_array($schedules)) {
+            $schedules = array();
+        }
+
+        $settings = $this->get_settings();
+        $hours = $this->get_cron_interval_hours($settings);
+        $schedule_key = $this->get_cron_schedule_key($hours);
+
+        if (! isset($schedules[$schedule_key])) {
+            $schedules[$schedule_key] = array(
+                'interval' => $hours * HOUR_IN_SECONDS,
+                'display' => sprintf('Cada %d hora(s) - iLeben API', $hours),
+            );
+        }
+
+        return $schedules;
     }
 
     public function fetch_site_config($endpoint_override = '')
@@ -162,6 +187,94 @@ class Ileben_Api_Client
         return $all_items;
     }
 
+    public function submit_contact_submission($channel, $fields, $turnstile_token = '')
+    {
+        $settings = $this->get_settings();
+
+        if (empty($settings['api_endpoint'])) {
+            return array(
+                'success' => false,
+                'status_code' => 0,
+                'message' => 'Debes configurar el endpoint API en la configuracion del plugin.',
+                'errors' => array(),
+                'data' => array(),
+                'request_payload' => array(),
+            );
+        }
+
+        $channel = sanitize_text_field((string) $channel);
+        $fields = is_array($fields) ? $fields : array();
+
+        $payload = array(
+            'channel' => $channel,
+            'fields' => $fields,
+        );
+
+        $turnstile_token = sanitize_text_field((string) $turnstile_token);
+        if ($turnstile_token !== '') {
+            $payload['turnstile_token'] = $turnstile_token;
+        }
+
+        $url = $this->build_request_url($settings['api_endpoint'], 'contact-submissions', '');
+        $http_args = $this->get_request_args($settings);
+        $http_args['method'] = 'POST';
+        $http_args['headers']['Content-Type'] = 'application/json';
+        $http_args['body'] = wp_json_encode($payload);
+
+        $this->log_request('POST ' . $url . ' | Payload: ' . substr((string) $http_args['body'], 0, 500));
+        $response = wp_remote_post($url, $http_args);
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'status_code' => 0,
+                'message' => $response->get_error_message(),
+                'errors' => array(),
+                'data' => array(),
+                'request_payload' => $payload,
+            );
+        }
+
+        $status_code = (int) wp_remote_retrieve_response_code($response);
+        $response_body = (string) wp_remote_retrieve_body($response);
+        $decoded = json_decode($response_body, true);
+        $decoded = is_array($decoded) ? $decoded : array();
+
+        $message = sanitize_text_field((string) ($decoded['message'] ?? ''));
+        if ($message === '') {
+            $message = $status_code >= 200 && $status_code < 300
+                ? 'Contacto enviado correctamente.'
+                : 'No se pudo enviar el contacto al API.';
+        }
+
+        $errors = array();
+        if (isset($decoded['errors']) && is_array($decoded['errors'])) {
+            $errors = $decoded['errors'];
+        }
+
+        $data = array();
+        if (isset($decoded['data']) && is_array($decoded['data'])) {
+            $data = $decoded['data'];
+        }
+
+        $remote_id = (int) ($decoded['id'] ?? 0);
+        if ($remote_id > 0) {
+            $data['id'] = $remote_id;
+        }
+
+        $this->log_request('POST HTTP ' . $status_code . ' | Body (500 chars): ' . substr($response_body, 0, 500));
+
+        return array(
+            'success' => $status_code >= 200 && $status_code < 300,
+            'status_code' => $status_code,
+            'message' => $message,
+            'errors' => $errors,
+            'data' => $data,
+            'raw_body' => $response_body,
+            'request_payload' => $payload,
+        );
+    }
+
     private function ensure_proyecto_query($url, $proyecto_id)
     {
         $url = (string) $url;
@@ -191,7 +304,7 @@ class Ileben_Api_Client
     private function get_request_args($settings)
     {
         $headers = array('Accept' => 'application/json');
-        
+
         // authorization header en minusculas como lo requiere la API
         if (! empty($settings['api_token'])) {
             $headers['authorization'] = 'Bearer ' . $settings['api_token'];
@@ -255,7 +368,7 @@ class Ileben_Api_Client
     {
         // Sanitizar URL base (remover trailing slash)
         $base = rtrim((string) $base_url, '/\\');
-        
+
         // Construir URL: {base_url}/{endpoint}
         $url = $base . '/' . ltrim($endpoint, '/\\');
 
@@ -276,7 +389,9 @@ class Ileben_Api_Client
             'cotiza_url' => '',
             'timeout' => 15,
             'cron_enabled' => 0,
+            'cron_interval_hours' => 1,
             'show_cover_image' => 1,
+            'use_api_favicon' => 1,
         );
     }
 
@@ -291,8 +406,20 @@ class Ileben_Api_Client
             'cotiza_url' => esc_url_raw(trim((string) ($settings['cotiza_url'] ?? ''))),
             'timeout' => min(120, max(5, (int) ($settings['timeout'] ?? 15))),
             'cron_enabled' => ! empty($settings['cron_enabled']) ? 1 : 0,
+            'cron_interval_hours' => min(24, max(1, (int) ($settings['cron_interval_hours'] ?? 1))),
             'show_cover_image' => ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']) ? 1 : 0,
+            'use_api_favicon' => ! isset($settings['use_api_favicon']) || ! empty($settings['use_api_favicon']) ? 1 : 0,
         );
+    }
+
+    private function get_cron_interval_hours($settings)
+    {
+        return min(24, max(1, (int) ($settings['cron_interval_hours'] ?? 1)));
+    }
+
+    private function get_cron_schedule_key($hours)
+    {
+        return 'ileben_api_every_' . (int) $hours . '_hours';
     }
 
     public function map_api_item($item)
@@ -415,5 +542,4 @@ class Ileben_Api_Client
 
         return 0;
     }
-
 }

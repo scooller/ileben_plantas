@@ -2,9 +2,18 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
-Version actual: 0.1.5
+Version actual: 0.1.8
 
 ## Novedades recientes
+
+- **Errores detallados en Sync Contactos**: Al reintentar un contacto fallido, ahora muestra errores especificos por campo (ej: "email: Email is required" en lugar de "validation.required").
+- **Modal para editar antes de reintentar**: Botón "Editar y reintentar" abre un formulario donde puedes corregir los datos antes de re-enviar.
+- **Error logging completo**: Todos los errores de CF7 se registran en WordPress logs (`debug.log`) con detalles de HTTP code, campo y mensaje.
+- Integracion con Contact Form 7 para envio de contactos al endpoint `/api/v1/contact-submissions`.
+- Nuevo tag de formulario CF7 para canal: `[ileben_channel "sale"]` (genera hidden `channel`).
+- Validaciones locales previas para envios CF7: canal obligatorio, comuna obligatoria y proyecto obligatorio.
+- Nuevo registro local de intentos de envio de contactos (estados: enviado, validacion, rate limit, fallido).
+- Nueva pantalla admin **Sync Contactos** con filtros, metricas y reintento manual por registro.
 
 - Migracion a estructura nueva de API solamente: sincronizacion valida unicamente respuestas paginadas con `data` y `next_page_url`.
 - Nuevo filtro frontend por `tipo_producto` (ademas de tipologia, piso y planta).
@@ -29,6 +38,8 @@ Version actual: 0.1.5
 - **CRON automatico**: Sincronizacion horaria opcional configurable desde el admin del plugin
 - **Multi-proyecto**: Soporte para filtrar y sincronizar plantas de proyectos especificos
 - **Paginacion incremental**: Al llegar al final del carrusel se cargan los siguientes bloques por AJAX
+- **Integracion CF7**: Envio de formularios de Contact Form 7 hacia API de contactos con canal por formulario
+- **Observabilidad de contactos**: Historial local de envios API con estados y reintento manual desde admin
 
 ## Tecnologias
 
@@ -99,6 +110,65 @@ Menu: `Plantas`
 - `Nueva Planta`: crear o editar
 - `Importar CSV`: cargar archivo CSV
 - `Sincronizar API`: importar desde endpoint configurado
+- `Sync Contactos`: monitorear y reintentar envios de formularios CF7 hacia API
+
+## Integracion Contact Form 7
+
+El plugin agrega soporte para enviar formularios CF7 al endpoint de contactos de la API.
+
+### Campos obligatorios del formulario CF7
+
+**IMPORTANTE**: Tu formulario CF7 DEBE incluir los siguientes tres campos ocultos (hidden fields):
+
+1. **`[hidden channel "valor"]`** - El canal de envio (ej: "sale", "rent", "info")
+2. **`[hidden comuna "valor"]`** - La comuna del proyecto (ej: "Santiago", "Providencia")
+3. **`[hidden proyecto "valor"]`** - El nombre o ID del proyecto (ej: "Argomedo", "29")
+
+Sin estos campos, el envio fallara con error de validacion (`validation_error`) y se registrara en la pantalla Sync Contactos.
+
+### Ejemplo de formulario CF7 completo
+
+```
+<label> Nombre (requerido)
+    [text nombre placeholder "Tu nombre"] </label>
+
+<label> Email (requerido)
+    [email email placeholder "Tu email"] </label>
+
+<label> Mensaje
+    [textarea mensaje placeholder "Tu mensaje aqui"] </label>
+
+[hidden channel "sale"]
+[hidden comuna "Santiago"]
+[hidden proyecto "Argomedo"]
+
+[submit "Enviar Consulta"]
+```
+
+### Campos de usuario que puedes personalizar
+
+Ademas de los campos obligatorios ocultos, tu formulario puede incluir cualquier campo visible:
+
+- `[text nombre placeholder "Nombre"]` - Nombre del contacto
+- `[email email placeholder "Email"]` - Email del contacto
+- `[tel telefono placeholder "Telefono"]` - Telefono opcional
+- `[textarea mensaje placeholder "Mensaje"]` - Mensaje libre
+- Cualquier otro campo personalizado
+
+El plugin capturara todos los campos y los enviara a la API junto con los ocultos.
+
+### Debugging de errores de validacion
+
+Si ves el error `validation_error` en la pantalla **Plantas → Sync Contactos**:
+
+1. Verifica que tu formulario incluya:
+   - `[hidden channel "..."]` 
+   - `[hidden comuna "..."]`
+   - `[hidden proyecto "..."]`
+
+2. Comprueba que el valor no este vacio en los hidden fields.
+
+3. Si los campos estan correctos, revisa la seccion "Response Body" en Sync Contactos para ver el error exacto de la API.
 
 ## Configuracion API (Admin del plugin)
 
@@ -117,7 +187,8 @@ Campos disponibles:
 | `Bearer Token` | No | Token de autorizacion. Se envia como `Authorization: Bearer <token>` | `tu-token-secret` |
 | `URL Cotizar por defecto` | No | URL global del boton Cotizar cuando la planta no tiene `cotizacion_url` propia | `https://...` |
 | `Timeout` | No | Timeout de peticiones HTTP en segundos (min: 5, max: 120) | `30` |
-| `Sincronizacion horaria (CRON)` | No | Activa sincronizacion automatica por hora | `Activado` |
+| `Sincronizacion automatica (CRON)` | No | Activa la sincronizacion por CRON | `Activado` |
+| `Intervalo CRON (horas)` | No | Define cada cuantas horas corre la sincronizacion automatica (min: 1, max: 24) | `3` |
 
 ### Filtrado por proyecto:
 

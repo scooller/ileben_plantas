@@ -7,10 +7,12 @@ if (! defined('ABSPATH')) {
 class Ileben_Api_Repository
 {
     private $table_name;
+    private $contact_sync_table_name;
 
     public function __construct()
     {
         $this->table_name = Ileben_Api_Plugin::get_table_name();
+        $this->contact_sync_table_name = Ileben_Api_Plugin::get_contact_sync_table_name();
     }
 
     public function find($id)
@@ -254,6 +256,161 @@ class Ileben_Api_Repository
         );
     }
 
+    public function get_contact_sync_states()
+    {
+        return array(
+            'sent' => 'Enviado',
+            'validation_error' => 'Error de validacion',
+            'rate_limited' => 'Rate limited',
+            'failed' => 'Fallido',
+        );
+    }
+
+    public function save_contact_sync_log($data)
+    {
+        global $wpdb;
+
+        $now = current_time('mysql');
+
+        if (! empty($data['id'])) {
+            $existing = $this->find_contact_sync_log((int) $data['id']);
+            if (is_array($existing) && ! empty($existing)) {
+                $data = array_merge($existing, $data);
+            }
+        }
+
+        $payload = $this->sanitize_contact_sync_data($data);
+        $payload['updated_at'] = $now;
+
+        if (! empty($payload['id'])) {
+            $id = (int) $payload['id'];
+            unset($payload['id']);
+
+            $result = $wpdb->update(
+                $this->contact_sync_table_name,
+                $payload,
+                array('id' => $id),
+                $this->get_contact_sync_formats($payload),
+                array('%d')
+            );
+
+            return $result !== false ? $id : false;
+        }
+
+        unset($payload['id']);
+        $payload['created_at'] = $now;
+
+        $result = $wpdb->insert(
+            $this->contact_sync_table_name,
+            $payload,
+            $this->get_contact_sync_formats($payload)
+        );
+
+        if ($result === false) {
+            return false;
+        }
+
+        return (int) $wpdb->insert_id;
+    }
+
+    public function find_contact_sync_log($id)
+    {
+        global $wpdb;
+
+        $sql = $wpdb->prepare("SELECT * FROM {$this->contact_sync_table_name} WHERE id = %d", (int) $id);
+        return $wpdb->get_row($sql, ARRAY_A);
+    }
+
+    public function increment_contact_sync_retry($id)
+    {
+        global $wpdb;
+
+        $sql = $wpdb->prepare(
+            "UPDATE {$this->contact_sync_table_name} SET retries = retries + 1, updated_at = %s WHERE id = %d",
+            current_time('mysql'),
+            (int) $id
+        );
+
+        return $wpdb->query($sql);
+    }
+
+    public function query_contact_sync_logs($filters = array(), $page = 1, $per_page = 20)
+    {
+        global $wpdb;
+
+        $where = array('1=1');
+        $params = array();
+
+        if (($filters['status'] ?? '') !== '') {
+            $where[] = 'status = %s';
+            $params[] = sanitize_text_field((string) $filters['status']);
+        }
+
+        if (($filters['channel'] ?? '') !== '') {
+            $where[] = 'channel = %s';
+            $params[] = sanitize_text_field((string) $filters['channel']);
+        }
+
+        if (($filters['email'] ?? '') !== '') {
+            $where[] = 'contact_email LIKE %s';
+            $params[] = '%' . $wpdb->esc_like((string) $filters['email']) . '%';
+        }
+
+        if (($filters['date_from'] ?? '') !== '') {
+            $where[] = 'DATE(created_at) >= %s';
+            $params[] = sanitize_text_field((string) $filters['date_from']);
+        }
+
+        if (($filters['date_to'] ?? '') !== '') {
+            $where[] = 'DATE(created_at) <= %s';
+            $params[] = sanitize_text_field((string) $filters['date_to']);
+        }
+
+        $where_sql = implode(' AND ', $where);
+        $count_sql = "SELECT COUNT(*) FROM {$this->contact_sync_table_name} WHERE {$where_sql}";
+        $prepared_count_sql = $params ? $wpdb->prepare($count_sql, $params) : $count_sql;
+        $total = (int) $wpdb->get_var($prepared_count_sql);
+
+        $page = max(1, (int) $page);
+        $per_page = max(1, (int) $per_page);
+        $offset = ($page - 1) * $per_page;
+
+        $items_sql = "SELECT * FROM {$this->contact_sync_table_name} WHERE {$where_sql} ORDER BY created_at DESC LIMIT %d OFFSET %d";
+        $items_params = array_merge($params, array($per_page, $offset));
+        $prepared_items_sql = $wpdb->prepare($items_sql, $items_params);
+        $items = $wpdb->get_results($prepared_items_sql, ARRAY_A);
+
+        return array(
+            'items' => $items,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $per_page,
+            'pages' => (int) ceil($total / $per_page),
+        );
+    }
+
+    public function get_contact_sync_stats()
+    {
+        global $wpdb;
+
+        $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->contact_sync_table_name}");
+        $sent = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$this->contact_sync_table_name} WHERE status = %s", 'sent'));
+        $failed_today = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->contact_sync_table_name} WHERE status IN (%s, %s, %s) AND DATE(created_at) = %s",
+            'failed',
+            'validation_error',
+            'rate_limited',
+            current_time('Y-m-d')
+        ));
+
+        return array(
+            'total' => $total,
+            'sent' => $sent,
+            'failed_today' => $failed_today,
+            'error_rate' => $total > 0 ? round((($total - $sent) / $total) * 100, 2) : 0,
+        );
+    }
+
     private function sanitize_data($data)
     {
         $states = array_keys($this->get_states());
@@ -337,6 +494,40 @@ class Ileben_Api_Repository
         );
     }
 
+    private function sanitize_contact_sync_data($data)
+    {
+        $states = array_keys($this->get_contact_sync_states());
+        $status = sanitize_text_field((string) ($data['status'] ?? 'failed'));
+        if (! in_array($status, $states, true)) {
+            $status = 'failed';
+        }
+
+        $payload_json = '{}';
+        if (isset($data['payload_json'])) {
+            $raw_payload = (string) $data['payload_json'];
+            $decoded_payload = json_decode($raw_payload, true);
+            if (is_array($decoded_payload)) {
+                $payload_json = wp_json_encode($decoded_payload);
+            }
+        }
+
+        return array(
+            'id' => isset($data['id']) ? (int) $data['id'] : 0,
+            'form_id' => max(0, (int) ($data['form_id'] ?? 0)),
+            'form_title' => sanitize_text_field((string) ($data['form_title'] ?? '')),
+            'channel' => sanitize_text_field((string) ($data['channel'] ?? '')),
+            'status' => $status,
+            'contact_name' => sanitize_text_field((string) ($data['contact_name'] ?? '')),
+            'contact_email' => sanitize_email((string) ($data['contact_email'] ?? '')),
+            'payload_json' => $payload_json,
+            'response_code' => (int) ($data['response_code'] ?? 0),
+            'response_body' => sanitize_textarea_field((string) ($data['response_body'] ?? '')),
+            'error_message' => sanitize_text_field((string) ($data['error_message'] ?? '')),
+            'retries' => max(0, (int) ($data['retries'] ?? 0)),
+            'remote_submission_id' => max(0, (int) ($data['remote_submission_id'] ?? 0)),
+        );
+    }
+
     private function get_formats($payload)
     {
         $map = array(
@@ -361,6 +552,33 @@ class Ileben_Api_Repository
             'brochure' => '%s',
             'cotizacion_url' => '%s',
             'estado' => '%s',
+            'created_at' => '%s',
+            'updated_at' => '%s',
+        );
+
+        $formats = array();
+        foreach ($payload as $key => $value) {
+            $formats[] = $map[$key] ?? '%s';
+        }
+
+        return $formats;
+    }
+
+    private function get_contact_sync_formats($payload)
+    {
+        $map = array(
+            'form_id' => '%d',
+            'form_title' => '%s',
+            'channel' => '%s',
+            'status' => '%s',
+            'contact_name' => '%s',
+            'contact_email' => '%s',
+            'payload_json' => '%s',
+            'response_code' => '%d',
+            'response_body' => '%s',
+            'error_message' => '%s',
+            'retries' => '%d',
+            'remote_submission_id' => '%d',
             'created_at' => '%s',
             'updated_at' => '%s',
         );

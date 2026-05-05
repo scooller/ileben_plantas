@@ -26,8 +26,10 @@ class Ileben_Api_Admin
         add_action('admin_post_ileben_api_import_csv', array($this, 'handle_import_csv'));
         add_action('admin_post_ileben_api_download_csv_sample', array($this, 'handle_download_csv_sample'));
         add_action('admin_post_ileben_api_sync_api', array($this, 'handle_sync_api'));
+        add_action('admin_post_ileben_api_retry_contact_sync', array($this, 'handle_retry_contact_sync'));
         add_action('admin_post_ileben_api_sync_site_config', array($this, 'handle_sync_site_config'));
         add_action('admin_post_ileben_api_save_settings', array($this, 'handle_save_settings'));
+        add_action('admin_post_ileben_api_toggle_favicon', array($this, 'handle_toggle_favicon'));
 
         add_action('ileben_api_cron_sync', array($this, 'run_sync'));
     }
@@ -42,7 +44,7 @@ class Ileben_Api_Admin
             array($this, 'render_list_page'),
             'dashicons-share-alt',
             26
-        );        
+        );
 
         add_submenu_page(
             'ileben-api',
@@ -79,6 +81,15 @@ class Ileben_Api_Admin
             'ileben-api-sync',
             array($this, 'render_sync_page')
         );
+
+        add_submenu_page(
+            'ileben-api',
+            'Sync Contactos',
+            'Sync Contactos',
+            ILEBEN_API_CAPABILITY,
+            'ileben-api-contact-sync',
+            array($this, 'render_contact_sync_page')
+        );
     }
 
     public function enqueue_assets($hook)
@@ -109,11 +120,14 @@ class Ileben_Api_Admin
             '7.0.1'
         );
 
+        $admin_css_path = ILEBEN_API_PATH . 'assets/css/admin.css';
+        $admin_css_version = file_exists($admin_css_path) ? (string) filemtime($admin_css_path) : ILEBEN_API_VERSION;
+
         wp_enqueue_style(
             'ileben-api-admin',
             ILEBEN_API_URL . 'assets/css/admin.css',
             array('ileben-api-bootstrap', 'ileben-api-fontawesome'),
-            ILEBEN_API_VERSION
+            $admin_css_version
         );
 
         // Inyectar CSS de la configuración de la API para mostrar colores personalizados en el admin.
@@ -132,6 +146,48 @@ class Ileben_Api_Admin
             ILEBEN_API_VERSION,
             true
         );
+
+        // Inline script para verificar que los assets se cargan y vincular botones
+        wp_add_inline_script('ileben-api-admin', "
+console.log('[ileben-api inline] Script inline ejecutado');
+console.log('[ileben-api inline] Buscando botones...');
+
+function initContactButtons() {
+    console.log('[ileben-api inline] initContactButtons ejecutado');
+    var buttons = document.querySelectorAll('.ileben-edit-contact-btn');
+    console.log('[ileben-api inline] Botones encontrados:', buttons.length);
+    
+    buttons.forEach(function(btn) {
+        if (!btn.dataset.listenerAdded) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('[ileben-api inline] Click detectado');
+                if (typeof ilebenEditContactModal === 'function') {
+                    ilebenEditContactModal(this);
+                } else {
+                    console.error('[ileben-api inline] ilebenEditContactModal no está definida');
+                }
+            });
+            btn.dataset.listenerAdded = 'true';
+        }
+    });
+}
+
+// Ejecutar si DOM ya está listo
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initContactButtons);
+} else {
+    initContactButtons();
+}
+
+// Re-ejecutar cuando jQuery está listo (en caso de que se haya perdido)
+if (typeof jQuery !== 'undefined') {
+    jQuery(function() {
+        console.log('[ileben-api inline] jQuery ready, re-inicializando botones');
+        initContactButtons();
+    });
+}
+        ", 'after');
     }
 
     public function render_list_page()
@@ -151,7 +207,7 @@ class Ileben_Api_Admin
         $result = $this->repository->query($filters, $page, 20);
 
         ob_start();
-        ?>
+?>
         <div class="wrap ileben-admin">
             <h1 class="mb-3">Plantas</h1>
             <?php $this->render_flash(); ?>
@@ -164,93 +220,109 @@ class Ileben_Api_Admin
                 </form>
             </div>
 
-            <div class="card mb-4"><div class="card-body">
-                <form class="row g-3" method="get">
-                    <input type="hidden" name="page" value="ileben-api" />
-                    <div class="col-md-3">
-                        <label class="form-label">Buscar</label>
-                        <input class="form-control" type="text" name="s" value="<?php echo esc_attr($filters['search']); ?>" />
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Estado</label>
-                        <select class="form-select" name="estado">
-                            <option value="">Todos</option>
-                            <?php foreach ($this->repository->get_states() as $state_key => $state_label): ?>
-                                <option value="<?php echo esc_attr($state_key); ?>" <?php echo selected($filters['estado'], $state_key, false); ?>><?php echo esc_html($state_label); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Tipo de planta</label>
-                        <select class="form-select" name="tipo_producto">
-                            <option value="">Todos</option>
-                            <?php foreach ($tipo_producto_options as $tipo_producto): ?>
-                                <option value="<?php echo esc_attr($tipo_producto); ?>" <?php echo selected($filters['tipo_producto'], $tipo_producto, false); ?>><?php echo esc_html($tipo_producto); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">Orden</label>
-                        <select class="form-select" name="orderby">
-                            <option value="">Mas recientes</option>
-                            <option value="nombre_asc" <?php echo selected($filters['orderby'], 'nombre_asc', false); ?>>Nombre A-Z</option>
-                            <option value="precio_asc" <?php echo selected($filters['orderby'], 'precio_asc', false); ?>>Precio menor</option>
-                            <option value="precio_desc" <?php echo selected($filters['orderby'], 'precio_desc', false); ?>>Precio mayor</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <button class="btn btn-primary w-100" type="submit">Filtrar</button>
-                    </div>
-                </form>
-            </div></div>
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form class="row g-3" method="get">
+                        <input type="hidden" name="page" value="ileben-api" />
+                        <div class="col-md-3">
+                            <label class="form-label">Buscar</label>
+                            <input class="form-control" type="text" name="s" value="<?php echo esc_attr($filters['search']); ?>" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Estado</label>
+                            <select class="form-select" name="estado">
+                                <option value="">Todos</option>
+                                <?php foreach ($this->repository->get_states() as $state_key => $state_label): ?>
+                                    <option value="<?php echo esc_attr($state_key); ?>" <?php echo selected($filters['estado'], $state_key, false); ?>><?php echo esc_html($state_label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Tipo de planta</label>
+                            <select class="form-select" name="tipo_producto">
+                                <option value="">Todos</option>
+                                <?php foreach ($tipo_producto_options as $tipo_producto): ?>
+                                    <option value="<?php echo esc_attr($tipo_producto); ?>" <?php echo selected($filters['tipo_producto'], $tipo_producto, false); ?>><?php echo esc_html($tipo_producto); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Orden</label>
+                            <select class="form-select" name="orderby">
+                                <option value="">Mas recientes</option>
+                                <option value="nombre_asc" <?php echo selected($filters['orderby'], 'nombre_asc', false); ?>>Nombre A-Z</option>
+                                <option value="precio_asc" <?php echo selected($filters['orderby'], 'precio_asc', false); ?>>Precio menor</option>
+                                <option value="precio_desc" <?php echo selected($filters['orderby'], 'precio_desc', false); ?>>Precio mayor</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
 
-            <div class="card"><div class="table-responsive">
-                <table class="table table-striped table-hover mb-0">
-                    <thead>
-                        <tr><th>ID</th><th>Nombre</th><th>Tipo de planta</th><th>Precio Base</th><th>Precio Lista</th><th>Banos</th><th>Dormitorios</th><th>Estado</th><th>Acciones</th></tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($result['items'])): ?>
-                            <tr><td colspan="9" class="text-center py-4">No hay plantas registradas.</td></tr>
-                        <?php else: ?>
-                            <?php foreach ($result['items'] as $item): ?>
-                                <?php
-                                $edit_url = add_query_arg(
-                                    array(
-                                        'page' => 'ileben-api-new',
-                                        'id' => (int) $item['id'],
-                                    ),
-                                    admin_url('admin.php')
-                                );
-                                ?>
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Tipo de planta</th>
+                                <th>Precio Base</th>
+                                <th>Precio Lista</th>
+                                <th>Banos</th>
+                                <th>Dormitorios</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($result['items'])): ?>
                                 <tr>
-                                    <td><?php echo (int) $item['id']; ?></td>
-                                    <td><?php echo esc_html($item['nombre']); ?></td>
-                                    <td><?php echo esc_html((string) ($item['tipo_producto'] ?? '-')); ?></td>
-                                    <td>$ <?php echo number_format((float) ($item['precio_base'] ?? 0), 2, '.', ','); ?></td>
-                                    <td>$ <?php echo number_format((float) ($item['precio_lista'] ?? $item['precio'] ?? 0), 2, '.', ','); ?></td>
-                                    <td><?php echo (int) $item['banos']; ?></td>
-                                    <td><?php echo (int) $item['dormitorios']; ?></td>
-                                    <td><span class="badge text-bg-secondary"><?php echo esc_html($this->repository->get_states()[$item['estado']] ?? $item['estado']); ?></span></td>
-                                    <td>
-                                        <a class="btn btn-sm btn-outline-primary me-2" href="<?php echo esc_url($edit_url); ?>">Editar</a>
-                                        <form style="display:inline-block" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('Deseas eliminar esta planta?');">
-                                            <input type="hidden" name="action" value="ileben_api_delete_plant" />
-                                            <input type="hidden" name="id" value="<?php echo (int) $item['id']; ?>" />
-                                            <?php wp_nonce_field('ileben_api_delete_' . (int) $item['id']); ?>
-                                            <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
-                                        </form>
-                                    </td>
+                                    <td colspan="9" class="text-center py-4">No hay plantas registradas.</td>
                                 </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div></div>
+                            <?php else: ?>
+                                <?php foreach ($result['items'] as $item): ?>
+                                    <?php
+                                    $edit_url = add_query_arg(
+                                        array(
+                                            'page' => 'ileben-api-new',
+                                            'id' => (int) $item['id'],
+                                        ),
+                                        admin_url('admin.php')
+                                    );
+                                    ?>
+                                    <tr>
+                                        <td><?php echo (int) $item['id']; ?></td>
+                                        <td><?php echo esc_html($item['nombre']); ?></td>
+                                        <td><?php echo esc_html((string) ($item['tipo_producto'] ?? '-')); ?></td>
+                                        <td>$ <?php echo number_format((float) ($item['precio_base'] ?? 0), 2, '.', ','); ?></td>
+                                        <td>$ <?php echo number_format((float) ($item['precio_lista'] ?? $item['precio'] ?? 0), 2, '.', ','); ?></td>
+                                        <td><?php echo (int) $item['banos']; ?></td>
+                                        <td><?php echo (int) $item['dormitorios']; ?></td>
+                                        <td><span class="badge text-bg-secondary"><?php echo esc_html($this->repository->get_states()[$item['estado']] ?? $item['estado']); ?></span></td>
+                                        <td>
+                                            <a class="btn btn-sm btn-outline-primary me-2" href="<?php echo esc_url($edit_url); ?>">Editar</a>
+                                            <form style="display:inline-block" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('Deseas eliminar esta planta?');">
+                                                <input type="hidden" name="action" value="ileben_api_delete_plant" />
+                                                <input type="hidden" name="id" value="<?php echo (int) $item['id']; ?>" />
+                                                <?php wp_nonce_field('ileben_api_delete_' . (int) $item['id']); ?>
+                                                <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
             <?php $this->render_pagination($result['page'], $result['pages']); ?>
         </div>
-        <?php
+    <?php
         echo ob_get_clean();
     }
 
@@ -312,193 +384,197 @@ class Ileben_Api_Admin
         $cotizacion_url = (string) ($plant['cotizacion_url'] ?? '');
         // Si está vacía en la planta, usar la URL por defecto de configuración
         if (empty($cotizacion_url) && !empty($default_cotiza_url)) {
-            $cotizacion_url = $default_cotiza_url.'&id='.$plant['external_id'];
+            $cotizacion_url = $default_cotiza_url . '&id=' . $plant['external_id'];
         }
 
         ob_start();
-        ?>
+    ?>
         <div class="wrap ileben-admin">
             <h1 class="mb-3"><?php echo $id ? 'Editar Planta' : 'Nueva Planta'; ?></h1>
             <?php $this->render_flash(); ?>
 
-            <div class="card"><div class="card-body">
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                    <input type="hidden" name="action" value="ileben_api_save_plant" />
-                    <input type="hidden" name="id" value="<?php echo (int) $plant['id']; ?>" />
-                    <?php wp_nonce_field('ileben_api_save'); ?>
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="ileben_api_save_plant" />
+                        <input type="hidden" name="id" value="<?php echo (int) $plant['id']; ?>" />
+                        <?php wp_nonce_field('ileben_api_save'); ?>
 
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label">External ID</label>
-                            <input class="form-control" type="text" name="external_id" value="<?php echo esc_attr($plant['external_id']); ?>" />
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Nombre *</label>
-                            <input class="form-control" type="text" name="nombre" required value="<?php echo esc_attr($plant['nombre']); ?>" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Descripcion</label>
-                            <textarea class="form-control" name="descripcion" rows="4"><?php echo esc_textarea($plant['descripcion']); ?></textarea>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Precio Base</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="precio_base" value="<?php echo esc_attr((string) ($plant['precio_base'] ?? 0)); ?>" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Precio Lista</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="precio_lista" value="<?php echo esc_attr((string) ($plant['precio_lista'] ?? $plant['precio'] ?? 0)); ?>" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Banos</label>
-                            <input class="form-control" min="0" type="number" name="banos" value="<?php echo esc_attr((string) $plant['banos']); ?>" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Dormitorios</label>
-                            <input class="form-control" min="0" type="number" name="dormitorios" value="<?php echo esc_attr((string) $plant['dormitorios']); ?>" />
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Metros cuadrados</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="metros_cuadrados" value="<?php echo esc_attr((string) $plant['metros_cuadrados']); ?>" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Tipologia</label>
-                            <input class="form-control" type="text" name="tipologia" value="<?php echo esc_attr((string) $plant['tipologia']); ?>" placeholder="1 dormitorio + 1 bano" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Planta (label)</label>
-                            <input class="form-control" type="text" name="planta_label" value="<?php echo esc_attr((string) $plant['planta_label']); ?>" placeholder="A: 501 al 701" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Orientacion</label>
-                            <input class="form-control" type="text" name="orientacion" value="<?php echo esc_attr((string) $plant['orientacion']); ?>" placeholder="Poniente" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Superficie interior (m2)</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="superficie_interior" value="<?php echo esc_attr((string) $plant['superficie_interior']); ?>" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Terraza (m2)</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="terraza_m2" value="<?php echo esc_attr((string) $plant['terraza_m2']); ?>" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Superficie total (m2)</label>
-                            <input class="form-control" step="0.01" min="0" type="number" name="superficie_total" value="<?php echo esc_attr((string) $plant['superficie_total']); ?>" />
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label d-block">Estado</label>
-                            <?php $is_disponible = (($plant['estado'] ?? 'disponible') === 'disponible'); ?>
-                            <input type="hidden" name="estado" id="ileben_estado_value" value="<?php echo $is_disponible ? 'disponible' : 'no_disponible'; ?>" />
-                            <div class="ileben-estado-toggle">
-                                <button type="button" class="ileben-estado-btn <?php echo $is_disponible ? 'active' : ''; ?>" id="ileben_estado_btn">
-                                    <svg class="ileben-estado-icon-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" style="display: <?php echo $is_disponible ? 'block' : 'none'; ?>"><path d="M320 576C178.6 576 64 461.4 64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576zM438 209.7C427.3 201.9 412.3 204.3 404.5 215L285.1 379.2L233 327.1C223.6 317.7 208.4 317.7 199.1 327.1C189.8 336.5 189.7 351.7 199.1 361L271.1 433C276.1 438 282.9 440.5 289.9 440C296.9 439.5 303.3 435.9 307.4 430.2L443.3 243.2C451.1 232.5 448.7 217.5 438 209.7z"/></svg>
-                                    <svg class="ileben-estado-icon-uncheck" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" style="display: <?php echo !$is_disponible ? 'block' : 'none'; ?>"><path d="M64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576C178.6 576 64 461.4 64 320z"/></svg>
-                                </button>
-                                <span class="ileben-estado-label" id="ileben_estado_label"><?php echo $is_disponible ? 'Disponible' : 'No disponible'; ?></span>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">External ID</label>
+                                <input class="form-control" type="text" name="external_id" value="<?php echo esc_attr($plant['external_id']); ?>" />
                             </div>
-                            <small class="text-muted d-block mt-2">Click en el ícono para cambiar estado.</small>
-                            <script type="text/javascript">
-                            (function() {
-                                const btn = document.getElementById('ileben_estado_btn');
-                                const estadoValue = document.getElementById('ileben_estado_value');
-                                const estadoLabel = document.getElementById('ileben_estado_label');
-                                const iconCheck = document.querySelector('.ileben-estado-icon-check');
-                                const iconUncheck = document.querySelector('.ileben-estado-icon-uncheck');
+                            <div class="col-md-8">
+                                <label class="form-label">Nombre *</label>
+                                <input class="form-control" type="text" name="nombre" required value="<?php echo esc_attr($plant['nombre']); ?>" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Descripcion</label>
+                                <textarea class="form-control" name="descripcion" rows="4"><?php echo esc_textarea($plant['descripcion']); ?></textarea>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Precio Base</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="precio_base" value="<?php echo esc_attr((string) ($plant['precio_base'] ?? 0)); ?>" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Precio Lista</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="precio_lista" value="<?php echo esc_attr((string) ($plant['precio_lista'] ?? $plant['precio'] ?? 0)); ?>" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Banos</label>
+                                <input class="form-control" min="0" type="number" name="banos" value="<?php echo esc_attr((string) $plant['banos']); ?>" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Dormitorios</label>
+                                <input class="form-control" min="0" type="number" name="dormitorios" value="<?php echo esc_attr((string) $plant['dormitorios']); ?>" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Metros cuadrados</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="metros_cuadrados" value="<?php echo esc_attr((string) $plant['metros_cuadrados']); ?>" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Tipologia</label>
+                                <input class="form-control" type="text" name="tipologia" value="<?php echo esc_attr((string) $plant['tipologia']); ?>" placeholder="1 dormitorio + 1 bano" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Planta (label)</label>
+                                <input class="form-control" type="text" name="planta_label" value="<?php echo esc_attr((string) $plant['planta_label']); ?>" placeholder="A: 501 al 701" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Orientacion</label>
+                                <input class="form-control" type="text" name="orientacion" value="<?php echo esc_attr((string) $plant['orientacion']); ?>" placeholder="Poniente" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Superficie interior (m2)</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="superficie_interior" value="<?php echo esc_attr((string) $plant['superficie_interior']); ?>" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Terraza (m2)</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="terraza_m2" value="<?php echo esc_attr((string) $plant['terraza_m2']); ?>" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Superficie total (m2)</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="superficie_total" value="<?php echo esc_attr((string) $plant['superficie_total']); ?>" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label d-block">Estado</label>
+                                <?php $is_disponible = (($plant['estado'] ?? 'disponible') === 'disponible'); ?>
+                                <input type="hidden" name="estado" id="ileben_estado_value" value="<?php echo $is_disponible ? 'disponible' : 'no_disponible'; ?>" />
+                                <div class="ileben-estado-toggle">
+                                    <button type="button" class="ileben-estado-btn <?php echo $is_disponible ? 'active' : ''; ?>" id="ileben_estado_btn">
+                                        <svg class="ileben-estado-icon-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" style="display: <?php echo $is_disponible ? 'block' : 'none'; ?>">
+                                            <path d="M320 576C178.6 576 64 461.4 64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576zM438 209.7C427.3 201.9 412.3 204.3 404.5 215L285.1 379.2L233 327.1C223.6 317.7 208.4 317.7 199.1 327.1C189.8 336.5 189.7 351.7 199.1 361L271.1 433C276.1 438 282.9 440.5 289.9 440C296.9 439.5 303.3 435.9 307.4 430.2L443.3 243.2C451.1 232.5 448.7 217.5 438 209.7z" />
+                                        </svg>
+                                        <svg class="ileben-estado-icon-uncheck" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" style="display: <?php echo !$is_disponible ? 'block' : 'none'; ?>">
+                                            <path d="M64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576C178.6 576 64 461.4 64 320z" />
+                                        </svg>
+                                    </button>
+                                    <span class="ileben-estado-label" id="ileben_estado_label"><?php echo $is_disponible ? 'Disponible' : 'No disponible'; ?></span>
+                                </div>
+                                <small class="text-muted d-block mt-2">Click en el ícono para cambiar estado.</small>
+                                <script type="text/javascript">
+                                    (function() {
+                                        const btn = document.getElementById('ileben_estado_btn');
+                                        const estadoValue = document.getElementById('ileben_estado_value');
+                                        const estadoLabel = document.getElementById('ileben_estado_label');
+                                        const iconCheck = document.querySelector('.ileben-estado-icon-check');
+                                        const iconUncheck = document.querySelector('.ileben-estado-icon-uncheck');
 
-                                if (!btn || !estadoValue || !estadoLabel || !iconCheck || !iconUncheck) {
-                                    return;
-                                }
+                                        if (!btn || !estadoValue || !estadoLabel || !iconCheck || !iconUncheck) {
+                                            return;
+                                        }
 
-                                function updateEstado(disponible) {
-                                    estadoValue.value = disponible ? 'disponible' : 'no_disponible';
-                                    estadoLabel.textContent = disponible ? 'Disponible' : 'No disponible';
-                                    
-                                    if (disponible) {
-                                        btn.classList.add('active');
-                                        iconCheck.style.display = 'block';
-                                        iconUncheck.style.display = 'none';
-                                    } else {
-                                        btn.classList.remove('active');
-                                        iconCheck.style.display = 'none';
-                                        iconUncheck.style.display = 'block';
-                                    }
-                                }
+                                        function updateEstado(disponible) {
+                                            estadoValue.value = disponible ? 'disponible' : 'no_disponible';
+                                            estadoLabel.textContent = disponible ? 'Disponible' : 'No disponible';
 
-                                btn.addEventListener('click', function(e) {
-                                    e.preventDefault();
-                                    const isActive = btn.classList.contains('active');
-                                    updateEstado(!isActive);
-                                });
-                            })();
-                            </script>
+                                            if (disponible) {
+                                                btn.classList.add('active');
+                                                iconCheck.style.display = 'block';
+                                                iconUncheck.style.display = 'none';
+                                            } else {
+                                                btn.classList.remove('active');
+                                                iconCheck.style.display = 'none';
+                                                iconUncheck.style.display = 'block';
+                                            }
+                                        }
+
+                                        btn.addEventListener('click', function(e) {
+                                            e.preventDefault();
+                                            const isActive = btn.classList.contains('active');
+                                            updateEstado(!isActive);
+                                        });
+                                    })();
+                                </script>
+                            </div>
+
+                            <div class="col-6">
+                                <label class="form-label">Imagen Portada</label>
+                                <input type="hidden" name="foto_portada" id="ileben_image_url_portada" value="<?php echo esc_attr($image_portada_url); ?>" />
+                                <div class="d-flex gap-2 mb-2">
+                                    <button type="button" class="btn btn-outline-primary" id="ileben_select_image_portada">Seleccionar/Subir portada</button>
+                                    <button type="button" class="btn btn-outline-secondary" id="ileben_remove_image_portada">Quitar portada</button>
+                                </div>
+                                <div id="ileben_image_preview_wrapper_portada">
+                                    <img
+                                        id="ileben_image_preview_portada"
+                                        src="<?php echo esc_url($image_portada_url !== '' ? $image_portada_url : $default_logo_url); ?>"
+                                        data-default-src="<?php echo esc_url($default_logo_url); ?>"
+                                        alt="Preview portada"
+                                        style="max-width: 240px; height: auto; border-radius: 8px;" />
+                                </div>
+                                <p class="text-muted mb-0">Imagen principal de la planta. Si está vacía, se muestra el logo por defecto.</p>
+                            </div>
+
+                            <div class="col-6">
+                                <label class="form-label">Imagen Interior</label>
+                                <input type="hidden" name="foto_interior" id="ileben_image_url_interior" value="<?php echo esc_attr($image_interior_url); ?>" />
+                                <div class="d-flex gap-2 mb-2">
+                                    <button type="button" class="btn btn-outline-primary" id="ileben_select_image_interior">Seleccionar/Subir interior</button>
+                                    <button type="button" class="btn btn-outline-secondary" id="ileben_remove_image_interior">Quitar interior</button>
+                                </div>
+                                <div id="ileben_image_preview_wrapper_interior">
+                                    <img
+                                        id="ileben_image_preview_interior"
+                                        src="<?php echo esc_url($image_interior_url !== '' ? $image_interior_url : $default_logo_url); ?>"
+                                        data-default-src="<?php echo esc_url($default_logo_url); ?>"
+                                        alt="Preview interior"
+                                        style="max-width: 240px; height: auto; border-radius: 8px;" />
+                                </div>
+                                <p class="text-muted mb-0">Imagen complementaria de interior.</p>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Brochure (archivo opcional)</label>
+                                <input type="hidden" name="brochure" id="ileben_brochure_url" value="<?php echo esc_attr($brochure_url); ?>" />
+                                <div class="d-flex gap-2 mb-2">
+                                    <button type="button" class="btn btn-outline-primary" id="ileben_select_brochure">Seleccionar/Subir brochure</button>
+                                    <button type="button" class="btn btn-outline-secondary" id="ileben_remove_brochure">Quitar brochure</button>
+                                </div>
+                                <div id="ileben_brochure_preview_wrapper">
+                                    <?php if ($brochure_url !== ''): ?>
+                                        <a id="ileben_brochure_preview" href="<?php echo esc_url($brochure_url); ?>" target="_blank" rel="noopener">Ver brochure actual</a>
+                                    <?php else: ?>
+                                        <a id="ileben_brochure_preview" href="#" target="_blank" rel="noopener" style="display:none;">Ver brochure actual</a>
+                                    <?php endif; ?>
+                                </div>
+                                <p class="text-muted mb-0">Puedes subir PDF u otro archivo descargable.</p>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">URL de cotizacion (opcional)</label>
+                                <input class="form-control" type="url" name="cotizacion_url" value="<?php echo esc_attr($cotizacion_url); ?>" placeholder="https://..." />
+                                <p class="text-muted mb-0">Si queda vacio, se usara la URL Cotizar por defecto configurada en el plugin.</p>
+                            </div>
+
+                            <div class="col-12"><button type="submit" class="btn btn-primary">Guardar</button></div>
                         </div>
-
-                        <div class="col-6">
-                            <label class="form-label">Imagen Portada</label>
-                            <input type="hidden" name="foto_portada" id="ileben_image_url_portada" value="<?php echo esc_attr($image_portada_url); ?>" />
-                            <div class="d-flex gap-2 mb-2">
-                                <button type="button" class="btn btn-outline-primary" id="ileben_select_image_portada">Seleccionar/Subir portada</button>
-                                <button type="button" class="btn btn-outline-secondary" id="ileben_remove_image_portada">Quitar portada</button>
-                            </div>
-                            <div id="ileben_image_preview_wrapper_portada">
-                                <img
-                                    id="ileben_image_preview_portada"
-                                    src="<?php echo esc_url($image_portada_url !== '' ? $image_portada_url : $default_logo_url); ?>"
-                                    data-default-src="<?php echo esc_url($default_logo_url); ?>"
-                                    alt="Preview portada"
-                                    style="max-width: 240px; height: auto; border-radius: 8px;"
-                                />
-                            </div>
-                            <p class="text-muted mb-0">Imagen principal de la planta. Si está vacía, se muestra el logo por defecto.</p>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">Imagen Interior</label>
-                            <input type="hidden" name="foto_interior" id="ileben_image_url_interior" value="<?php echo esc_attr($image_interior_url); ?>" />
-                            <div class="d-flex gap-2 mb-2">
-                                <button type="button" class="btn btn-outline-primary" id="ileben_select_image_interior">Seleccionar/Subir interior</button>
-                                <button type="button" class="btn btn-outline-secondary" id="ileben_remove_image_interior">Quitar interior</button>
-                            </div>
-                            <div id="ileben_image_preview_wrapper_interior">
-                                <img
-                                    id="ileben_image_preview_interior"
-                                    src="<?php echo esc_url($image_interior_url !== '' ? $image_interior_url : $default_logo_url); ?>"
-                                    data-default-src="<?php echo esc_url($default_logo_url); ?>"
-                                    alt="Preview interior"
-                                    style="max-width: 240px; height: auto; border-radius: 8px;"
-                                />
-                            </div>
-                            <p class="text-muted mb-0">Imagen complementaria de interior.</p>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">Brochure (archivo opcional)</label>
-                            <input type="hidden" name="brochure" id="ileben_brochure_url" value="<?php echo esc_attr($brochure_url); ?>" />
-                            <div class="d-flex gap-2 mb-2">
-                                <button type="button" class="btn btn-outline-primary" id="ileben_select_brochure">Seleccionar/Subir brochure</button>
-                                <button type="button" class="btn btn-outline-secondary" id="ileben_remove_brochure">Quitar brochure</button>
-                            </div>
-                            <div id="ileben_brochure_preview_wrapper">
-                                <?php if ($brochure_url !== ''): ?>
-                                    <a id="ileben_brochure_preview" href="<?php echo esc_url($brochure_url); ?>" target="_blank" rel="noopener">Ver brochure actual</a>
-                                <?php else: ?>
-                                    <a id="ileben_brochure_preview" href="#" target="_blank" rel="noopener" style="display:none;">Ver brochure actual</a>
-                                <?php endif; ?>
-                            </div>
-                            <p class="text-muted mb-0">Puedes subir PDF u otro archivo descargable.</p>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">URL de cotizacion (opcional)</label>
-                            <input class="form-control" type="url" name="cotizacion_url" value="<?php echo esc_attr($cotizacion_url); ?>" placeholder="https://..." />
-                            <p class="text-muted mb-0">Si queda vacio, se usara la URL Cotizar por defecto configurada en el plugin.</p>
-                        </div>
-
-                        <div class="col-12"><button type="submit" class="btn btn-primary">Guardar</button></div>
-                    </div>
-                </form>
-            </div></div>
+                    </form>
+                </div>
+            </div>
         </div>
-        <?php
+    <?php
         echo ob_get_clean();
     }
 
@@ -507,29 +583,31 @@ class Ileben_Api_Admin
         $this->guard_permission();
 
         ob_start();
-        ?>
+    ?>
         <div class="wrap ileben-admin">
             <h1 class="mb-3">Importar CSV</h1>
             <?php $this->render_flash(); ?>
 
-            <div class="card"><div class="card-body">
-        <?php
-        $sample_url = wp_nonce_url(
-            admin_url('admin-post.php?action=ileben_api_download_csv_sample'),
-            'ileben_api_download_csv_sample'
-        );
-        ?>
-                <p class="text-muted">Columnas esperadas: external_id, nombre, descripcion, precio_base, precio_lista, banos, dormitorios, metros_cuadrados, tipologia, planta_label, orientacion, superficie_interior, terraza_m2, superficie_total, foto_portada, foto_interior, brochure, cotizacion_url, estado.</p>
-                <p><a class="btn btn-outline-secondary" href="<?php echo esc_url($sample_url); ?>">Descargar CSV de ejemplo</a></p>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data">
-                    <input type="hidden" name="action" value="ileben_api_import_csv" />
-                    <?php wp_nonce_field('ileben_api_import_csv'); ?>
-                    <div class="mb-3"><input class="form-control" type="file" name="csv_file" accept=".csv,text/csv" required /></div>
-                    <button type="submit" class="btn btn-primary">Importar</button>
-                </form>
-            </div></div>
+            <div class="card">
+                <div class="card-body">
+                    <?php
+                    $sample_url = wp_nonce_url(
+                        admin_url('admin-post.php?action=ileben_api_download_csv_sample'),
+                        'ileben_api_download_csv_sample'
+                    );
+                    ?>
+                    <p class="text-muted">Columnas esperadas: external_id, nombre, descripcion, precio_base, precio_lista, banos, dormitorios, metros_cuadrados, tipologia, planta_label, orientacion, superficie_interior, terraza_m2, superficie_total, foto_portada, foto_interior, brochure, cotizacion_url, estado.</p>
+                    <p><a class="btn btn-outline-secondary" href="<?php echo esc_url($sample_url); ?>">Descargar CSV de ejemplo</a></p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="ileben_api_import_csv" />
+                        <?php wp_nonce_field('ileben_api_import_csv'); ?>
+                        <div class="mb-3"><input class="form-control" type="file" name="csv_file" accept=".csv,text/csv" required /></div>
+                        <button type="submit" class="btn btn-primary">Importar</button>
+                    </form>
+                </div>
+            </div>
         </div>
-        <?php
+    <?php
         echo ob_get_clean();
     }
 
@@ -540,7 +618,7 @@ class Ileben_Api_Admin
         $proyecto_id_empty = empty($settings['proyecto_id']);
 
         ob_start();
-        ?>
+    ?>
         <div class="wrap ileben-admin">
             <h1 class="mb-3">Sincronizacion con API</h1>
             <?php $this->render_flash(); ?>
@@ -575,7 +653,7 @@ class Ileben_Api_Admin
                             </div>
 
                             <div class="col-md-4">
-                                <label class="form-label">Timeout (5-120s)<sup>*</sup></label>
+                                <label class="form-label">Timeout API (5-120s)<sup>*</sup></label>
                                 <input class="form-control" type="number" min="5" max="120" name="timeout" required value="<?php echo esc_attr((string) ($settings['timeout'] ?? 15)); ?>" />
                             </div>
 
@@ -588,7 +666,12 @@ class Ileben_Api_Admin
                                 <div class="mb-2">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="ileben_cron_enabled" name="cron_enabled" value="1" <?php checked((int) ($settings['cron_enabled'] ?? 0), 1, true); ?> />
-                                        <label class="form-check-label" for="ileben_cron_enabled">Activar sincronizacion horaria (CRON)</label>
+                                        <label class="form-check-label" for="ileben_cron_enabled">Activar sincronizacion automatica (CRON)</label>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label" for="ileben_cron_interval_hours">Intervalo CRON (horas)</label>
+                                        <input class="form-control" type="number" min="1" max="24" id="ileben_cron_interval_hours" name="cron_interval_hours" value="<?php echo esc_attr((string) ($settings['cron_interval_hours'] ?? 1)); ?>" />
+                                        <small class="text-muted d-block mt-1">Define cada cuantas horas se ejecuta la sincronizacion automatica.</small>
                                     </div>
                                     <div class="form-check mt-2">
                                         <input class="form-check-input" type="checkbox" id="ileben_show_cover_image" name="show_cover_image" value="1" <?php checked((int) ($settings['show_cover_image'] ?? 1), 1, true); ?> />
@@ -614,7 +697,7 @@ class Ileben_Api_Admin
                             <strong>⚠️ Advertencia:</strong> El campo "Proyecto ID" está vacío. Se importarán <strong>TODAS</strong> las plantas de la API.
                         </div>
                     <?php endif; ?>
-                    
+
                     <p class="text-muted">Ejecuta una sincronizacion manual de plantas desde la API configurada.</p>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="ileben_sync_form">
                         <input type="hidden" name="action" value="ileben_api_sync_api" />
@@ -624,118 +707,118 @@ class Ileben_Api_Admin
                     </form>
 
                     <script type="text/javascript">
-                    (function() {
-                        const endpointInput = document.getElementById('ileben_api_endpoint');
-                        const proyectoSelect = document.getElementById('ileben_proyecto_select');
-                        const reloadBtn = document.getElementById('ileben_reload_proyectos');
-                        const syncForm = document.getElementById('ileben_sync_form');
-                        const syncBtn = document.getElementById('ileben_sync_btn');
-                        const syncProyectoInput = document.getElementById('ileben_sync_proyecto_id');
+                        (function() {
+                            const endpointInput = document.getElementById('ileben_api_endpoint');
+                            const proyectoSelect = document.getElementById('ileben_proyecto_select');
+                            const reloadBtn = document.getElementById('ileben_reload_proyectos');
+                            const syncForm = document.getElementById('ileben_sync_form');
+                            const syncBtn = document.getElementById('ileben_sync_btn');
+                            const syncProyectoInput = document.getElementById('ileben_sync_proyecto_id');
 
-                        function selectedProyectoId() {
-                            return proyectoSelect ? String(proyectoSelect.value || '').trim() : '';
-                        }
-
-                        function requiresConfirm() {
-                            return selectedProyectoId() === '';
-                        }
-
-                        function loadProyectos() {
-                            const endpoint = endpointInput.value.trim();
-                            if (!endpoint) {
-                                proyectoSelect.innerHTML = '<option value="">-- Configura el endpoint API primero --</option>';
-                                return;
+                            function selectedProyectoId() {
+                                return proyectoSelect ? String(proyectoSelect.value || '').trim() : '';
                             }
 
-                            proyectoSelect.innerHTML = '<option value="">-- Cargando proyectos --</option>';
-                            proyectoSelect.disabled = true;
+                            function requiresConfirm() {
+                                return selectedProyectoId() === '';
+                            }
 
-                            fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/x-www-form-urlencoded',
-                                },
-                                body: new URLSearchParams({
-                                    action: 'ileben_api_get_proyectos',
-                                    nonce: '<?php echo wp_create_nonce('ileben_api_get_proyectos'); ?>',
-                                    endpoint: endpoint,
-                                }).toString()
-                            })
-                            .then(response => response.text())
-                            .then(text => {
-                                const cleanedText = text.replace(/^\uFEFF/, '').trim();
-                                let data;
-                                try {
-                                    data = JSON.parse(cleanedText);
-                                } catch (e) {
-                                    console.error('AJAX JSON parse error:', e, 'Raw response:', text);
-                                    proyectoSelect.innerHTML = '<option value="">Error al cargar proyectos</option>';
-                                    proyectoSelect.disabled = false;
+                            function loadProyectos() {
+                                const endpoint = endpointInput.value.trim();
+                                if (!endpoint) {
+                                    proyectoSelect.innerHTML = '<option value="">-- Configura el endpoint API primero --</option>';
                                     return;
                                 }
-                                if (data.success && Array.isArray(data.data)) {
-                                    let options = '<option value="">-- Selecciona un proyecto --</option>';
-                                    data.data.forEach(proyecto => {
-                                        const id = proyecto.id || '';
-                                        const nombre = proyecto.nombre || 'Sin nombre';
-                                        const selected = String(id) === '<?php echo esc_attr((string) ($settings['proyecto_id'] ?? '')); ?>' ? 'selected' : '';
-                                        options += '<option value="' + id + '" ' + selected + '>' + nombre + '</option>';
+
+                                proyectoSelect.innerHTML = '<option value="">-- Cargando proyectos --</option>';
+                                proyectoSelect.disabled = true;
+
+                                fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                        },
+                                        body: new URLSearchParams({
+                                            action: 'ileben_api_get_proyectos',
+                                            nonce: '<?php echo wp_create_nonce('ileben_api_get_proyectos'); ?>',
+                                            endpoint: endpoint,
+                                        }).toString()
+                                    })
+                                    .then(response => response.text())
+                                    .then(text => {
+                                        const cleanedText = text.replace(/^\uFEFF/, '').trim();
+                                        let data;
+                                        try {
+                                            data = JSON.parse(cleanedText);
+                                        } catch (e) {
+                                            console.error('AJAX JSON parse error:', e, 'Raw response:', text);
+                                            proyectoSelect.innerHTML = '<option value="">Error al cargar proyectos</option>';
+                                            proyectoSelect.disabled = false;
+                                            return;
+                                        }
+                                        if (data.success && Array.isArray(data.data)) {
+                                            let options = '<option value="">-- Selecciona un proyecto --</option>';
+                                            data.data.forEach(proyecto => {
+                                                const id = proyecto.id || '';
+                                                const nombre = proyecto.nombre || 'Sin nombre';
+                                                const selected = String(id) === '<?php echo esc_attr((string) ($settings['proyecto_id'] ?? '')); ?>' ? 'selected' : '';
+                                                options += '<option value="' + id + '" ' + selected + '>' + nombre + '</option>';
+                                            });
+                                            proyectoSelect.innerHTML = options;
+                                        } else {
+                                            console.error('AJAX error response:', data);
+                                            proyectoSelect.innerHTML = '<option value="">Error: ' + (data.data || 'respuesta inválida') + '</option>';
+                                        }
+                                        proyectoSelect.disabled = false;
+                                    })
+                                    .catch(error => {
+                                        console.error('Error:', error);
+                                        proyectoSelect.innerHTML = '<option value="">Error al cargar proyectos</option>';
+                                        proyectoSelect.disabled = false;
                                     });
-                                    proyectoSelect.innerHTML = options;
-                                } else {
-                                    console.error('AJAX error response:', data);
-                                    proyectoSelect.innerHTML = '<option value="">Error: ' + (data.data || 'respuesta inválida') + '</option>';
-                                }
-                                proyectoSelect.disabled = false;
-                            })
-                            .catch(error => {
-                                console.error('Error:', error);
-                                proyectoSelect.innerHTML = '<option value="">Error al cargar proyectos</option>';
-                                proyectoSelect.disabled = false;
-                            });
-                        }
+                            }
 
-                        // Cargar proyectos al cambiar endpoint
-                        endpointInput.addEventListener('change', loadProyectos);
-                        endpointInput.addEventListener('blur', loadProyectos);
+                            // Cargar proyectos al cambiar endpoint
+                            endpointInput.addEventListener('change', loadProyectos);
+                            endpointInput.addEventListener('blur', loadProyectos);
 
-                        // Cargar proyectos al inicial si hay endpoint
-                        if (endpointInput.value.trim()) {
-                            setTimeout(loadProyectos, 100);
-                        }
+                            // Cargar proyectos al inicial si hay endpoint
+                            if (endpointInput.value.trim()) {
+                                setTimeout(loadProyectos, 100);
+                            }
 
-                        // BotÃ³n recargar
-                        reloadBtn.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            loadProyectos();
-                        });
-
-                        syncForm.addEventListener('submit', function(e) {
-                            if (syncBtn.disabled) {
+                            // BotÃ³n recargar
+                            reloadBtn.addEventListener('click', function(e) {
                                 e.preventDefault();
-                                return;
-                            }
+                                loadProyectos();
+                            });
 
-                            if (syncProyectoInput) {
-                                const selected = selectedProyectoId();
-                                if (selected !== '') {
-                                    syncProyectoInput.value = selected;
-                                }
-                            }
-
-                            if (requiresConfirm()) {
-                                const confirmed = confirm('⚠️ ADVERTENCIA: Proyecto ID está vacío.\n\nSe importarán TODAS las plantas de la API.\n\n¿Deseas continuar?');
-                                if (!confirmed) {
+                            syncForm.addEventListener('submit', function(e) {
+                                if (syncBtn.disabled) {
                                     e.preventDefault();
                                     return;
                                 }
-                            }
 
-                            syncBtn.disabled = true;
-                            syncBtn.dataset.originalText = syncBtn.textContent;
-                            syncBtn.textContent = 'Sincronizando...';
-                        });
-                    })();
+                                if (syncProyectoInput) {
+                                    const selected = selectedProyectoId();
+                                    if (selected !== '') {
+                                        syncProyectoInput.value = selected;
+                                    }
+                                }
+
+                                if (requiresConfirm()) {
+                                    const confirmed = confirm('⚠️ ADVERTENCIA: Proyecto ID está vacío.\n\nSe importarán TODAS las plantas de la API.\n\n¿Deseas continuar?');
+                                    if (!confirmed) {
+                                        e.preventDefault();
+                                        return;
+                                    }
+                                }
+
+                                syncBtn.disabled = true;
+                                syncBtn.dataset.originalText = syncBtn.textContent;
+                                syncBtn.textContent = 'Sincronizando...';
+                            });
+                        })();
                     </script>
                 </div>
             </div>
@@ -757,13 +840,13 @@ class Ileben_Api_Admin
                                 'webawesome_palette' => 'Paleta',
                                 'icon_family'        => 'Familia de íconos',
                                 'font_family_body'   => 'Fuente cuerpo',
-                                'font_family_heading'=> 'Fuente títulos',
+                                'font_family_heading' => 'Fuente títulos',
                                 'maintenance_mode'   => 'Modo mantenimiento',
                             );
                             foreach ($fields as $key => $label) :
                                 if (! array_key_exists($key, $site_config)) continue;
                                 $val = $site_config[$key];
-                                ?>
+                            ?>
                                 <div class="col-md-4">
                                     <small class="text-muted d-block"><?php echo esc_html($label); ?></small>
                                     <?php if ($key === 'brand_color' && ! empty($val)) : ?>
@@ -788,21 +871,68 @@ class Ileben_Api_Admin
                         $social_items  = array_filter((array) $social);
                         if (! empty($contact_items) || ! empty($social_items)) :
                         ?>
-                        <div class="row g-2 mb-3">
-                            <?php foreach ($contact_items as $ck => $cv) : ?>
-                                <div class="col-md-4">
-                                    <small class="text-muted d-block"><?php echo esc_html(ucfirst($ck)); ?></small>
-                                    <strong><?php echo esc_html((string) $cv); ?></strong>
-                                </div>
-                            <?php endforeach; ?>
-                            <?php foreach ($social_items as $sk => $sv) : ?>
-                                <div class="col-md-4">
-                                    <small class="text-muted d-block"><?php echo esc_html(ucfirst($sk)); ?></small>
-                                    <strong><?php echo esc_html((string) $sv); ?></strong>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
+                            <div class="row g-2 mb-3">
+                                <?php foreach ($contact_items as $ck => $cv) : ?>
+                                    <div class="col-md-4">
+                                        <small class="text-muted d-block"><?php echo esc_html(ucfirst($ck)); ?></small>
+                                        <strong><?php echo esc_html((string) $cv); ?></strong>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php foreach ($social_items as $sk => $sv) : ?>
+                                    <div class="col-md-4">
+                                        <small class="text-muted d-block"><?php echo esc_html(ucfirst($sk)); ?></small>
+                                        <strong><?php echo esc_html((string) $sv); ?></strong>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
                         <?php endif; ?>
+                        <?php
+                        $logo_fields = array(
+                            'logo' => 'Logo',
+                            'logo_dark' => 'Logo oscuro',
+                            'logo_sale' => 'Logo sale',
+                            'favicon' => 'Favicon',
+                        );
+                        $logo_items = array();
+                        foreach ($logo_fields as $key => $label) {
+                            $logo_url = esc_url((string) ($site_config[$key] ?? ''));
+                            if ($logo_url === '') {
+                                continue;
+                            }
+
+                            $logo_items[$key] = array(
+                                'label' => $label,
+                                'url' => $logo_url,
+                            );
+                        }
+                        if (! empty($logo_items)) :
+                        ?>
+                            <div class="row g-3 mb-3">
+                                <?php foreach ($logo_items as $logo_item) : ?>
+                                    <div class="col-md-3 col-sm-6">
+                                        <small class="text-muted d-block mb-2"><?php echo esc_html($logo_item['label']); ?></small>
+                                        <a href="<?php echo esc_url($logo_item['url']); ?>" target="_blank" rel="noopener noreferrer" class="d-block border rounded p-2 bg-white text-center">
+                                            <img src="<?php echo esc_url($logo_item['url']); ?>" alt="<?php echo esc_attr($logo_item['label']); ?>" style="max-width:100%;max-height:72px;object-fit:contain;" />
+                                        </a>
+                                        <small class="text-muted d-block mt-2 text-break"><?php echo esc_html($logo_item['url']); ?></small>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="ileben-site-config-toggle mb-3">
+                            <input type="hidden" name="action" value="ileben_api_toggle_favicon" />
+                            <?php wp_nonce_field('ileben_api_toggle_favicon'); ?>
+                            <div class="ileben-site-config-toggle__row">
+                                <div>
+                                    <label class="ileben-site-config-toggle__label" for="ileben_use_api_favicon_site_config">Usar favicon de la API</label>
+                                    <small class="text-muted d-block mt-1">Activa o desactiva la inyeccion del favicon recibido desde la API.</small>
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="ileben_use_api_favicon_site_config" name="use_api_favicon" value="1" <?php checked((int) ($settings['use_api_favicon'] ?? 1), 1, true); ?> onchange="this.form.submit()" />
+                                    <span class="ileben-site-config-toggle__state"><?php echo ! empty($settings['use_api_favicon']) ? 'Activo' : 'Desactivado'; ?></span>
+                                </div>
+                            </div>
+                        </form>
                         <p class="text-muted small mb-0">Última sincronización incluida en el proceso de sync.</p>
                     <?php else : ?>
                         <p class="text-muted mb-3">No hay configuración guardada aún. Usa el botón para sincronizar desde la API.</p>
@@ -816,12 +946,270 @@ class Ileben_Api_Admin
                 </div>
             </div>
         </div>
-        <?php
+    <?php
 
         echo ob_get_clean();
     }
 
+    public function render_contact_sync_page()
+    {
+        $this->guard_permission();
 
+        $page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $filters = array(
+            'status' => sanitize_text_field((string) ($_GET['status'] ?? '')),
+            'channel' => sanitize_text_field((string) ($_GET['channel'] ?? '')),
+            'email' => sanitize_text_field((string) ($_GET['email'] ?? '')),
+            'date_from' => sanitize_text_field((string) ($_GET['date_from'] ?? '')),
+            'date_to' => sanitize_text_field((string) ($_GET['date_to'] ?? '')),
+        );
+
+        $states = $this->repository->get_contact_sync_states();
+        $result = $this->repository->query_contact_sync_logs($filters, $page, 20);
+        $stats = $this->repository->get_contact_sync_stats();
+
+        ob_start();
+    ?>
+        <div class="wrap ileben-admin">
+            <h1 class="mb-3">Sync Contactos API</h1>
+            <?php $this->render_flash(); ?>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Uso en Contact Form 7</h2>
+                    <p class="text-muted mb-2">Inserta este tag dentro del formulario CF7 para enviar el canal obligatorio al API:</p>
+                    <pre class="ileben-code-sample">[ileben_channel "sale"]</pre>
+                    <p class="text-muted mb-0">Tambien puedes usar un hidden estandar con name="channel". El canal debe existir y estar activo en el backend.</p>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body"><small class="text-muted d-block">Total envios</small><strong><?php echo (int) ($stats['total'] ?? 0); ?></strong></div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body"><small class="text-muted d-block">Enviados</small><strong><?php echo (int) ($stats['sent'] ?? 0); ?></strong></div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body"><small class="text-muted d-block">Fallidos hoy</small><strong><?php echo (int) ($stats['failed_today'] ?? 0); ?></strong></div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card">
+                        <div class="card-body"><small class="text-muted d-block">Tasa de error</small><strong><?php echo esc_html(number_format((float) ($stats['error_rate'] ?? 0), 2)); ?>%</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form class="row g-3" method="get">
+                        <input type="hidden" name="page" value="ileben-api-contact-sync" />
+                        <div class="col-md-2">
+                            <label class="form-label">Estado</label>
+                            <select class="form-select" name="status">
+                                <option value="">Todos</option>
+                                <?php foreach ($states as $state_key => $state_label): ?>
+                                    <option value="<?php echo esc_attr($state_key); ?>" <?php echo selected($filters['status'], $state_key, false); ?>><?php echo esc_html($state_label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Canal</label>
+                            <input class="form-control" type="text" name="channel" value="<?php echo esc_attr($filters['channel']); ?>" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Email</label>
+                            <input class="form-control" type="text" name="email" value="<?php echo esc_attr($filters['email']); ?>" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Desde</label>
+                            <input class="form-control" type="date" name="date_from" value="<?php echo esc_attr($filters['date_from']); ?>" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Hasta</label>
+                            <input class="form-control" type="date" name="date_to" value="<?php echo esc_attr($filters['date_to']); ?>" />
+                        </div>
+                        <div class="col-md-1 d-flex align-items-end">
+                            <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Fecha</th>
+                                <th>Formulario</th>
+                                <th>Canal</th>
+                                <th>Contacto</th>
+                                <th>Estado</th>
+                                <th>HTTP</th>
+                                <th>Intentos</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($result['items'])): ?>
+                                <tr>
+                                    <td colspan="9" class="text-center py-4">No hay envios registrados.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($result['items'] as $item): ?>
+                                    <?php
+                                    $status_key = (string) ($item['status'] ?? 'failed');
+                                    $status_label = $states[$status_key] ?? $status_key;
+                                    $badge_class = $status_key === 'sent' ? 'text-bg-success' : ($status_key === 'rate_limited' ? 'text-bg-warning' : 'text-bg-danger');
+                                    ?>
+                                    <tr>
+                                        <td><?php echo (int) ($item['id'] ?? 0); ?></td>
+                                        <td><?php echo esc_html((string) ($item['created_at'] ?? '')); ?></td>
+                                        <td>
+                                            <div>#<?php echo (int) ($item['form_id'] ?? 0); ?></div>
+                                            <small class="text-muted"><?php echo esc_html((string) ($item['form_title'] ?? '')); ?></small>
+                                        </td>
+                                        <td><?php echo esc_html((string) ($item['channel'] ?? '')); ?></td>
+                                        <td>
+                                            <div><?php echo esc_html((string) ($item['contact_name'] ?? '')); ?></div>
+                                            <small class="text-muted"><?php echo esc_html((string) ($item['contact_email'] ?? '')); ?></small>
+                                        </td>
+                                        <td><span class="badge <?php echo esc_attr($badge_class); ?>"><?php echo esc_html($status_label); ?></span></td>
+                                        <td><?php echo (int) ($item['response_code'] ?? 0); ?></td>
+                                        <td><?php echo (int) ($item['retries'] ?? 0); ?></td>
+                                        <td>
+                                            <?php if ($status_key !== 'sent'): ?>
+                                                <button
+                                                    class="btn btn-sm btn-outline-primary ileben-edit-contact-btn"
+                                                    data-contact-id="<?php echo (int) ($item['id'] ?? 0); ?>"
+                                                    data-contact-name="<?php echo esc_attr((string) ($item['contact_name'] ?? '')); ?>"
+                                                    data-contact-email="<?php echo esc_attr((string) ($item['contact_email'] ?? '')); ?>"
+                                                    data-payload='<?php echo esc_attr((string) ($item['payload_json'] ?? '{}')); ?>'
+                                                    type="button">
+                                                    Editar y reintentar
+                                                </button>
+                                            <?php else: ?>
+                                                <span class="text-muted small">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <?php if (! empty($item['error_message'])): ?>
+                                        <?php
+                                        // Intenta parsear el JSON de errores
+                                        $error_data = @json_decode($item['error_message'], true);
+                                        $error_html = '';
+
+                                        if (is_array($error_data) && isset($error_data['errors']) && is_array($error_data['errors'])) {
+                                            // Errores estructurados por campo
+                                            $error_html .= '<div class="alert alert-danger alert-sm mb-2" style="margin-bottom: 0.5rem;">';
+                                            $error_html .= '<strong>Errores de validacion:</strong><ul class="mt-2 mb-0">';
+                                            foreach ($error_data['errors'] as $field => $messages) {
+                                                if (is_array($messages)) {
+                                                    foreach ($messages as $msg) {
+                                                        $error_html .= '<li><code>' . esc_html($field) . '</code>: ' . esc_html($msg) . '</li>';
+                                                    }
+                                                } else {
+                                                    $error_html .= '<li><code>' . esc_html($field) . '</code>: ' . esc_html($messages) . '</li>';
+                                                }
+                                            }
+                                            $error_html .= '</ul></div>';
+                                            if (!empty($error_data['message'])) {
+                                                $error_html .= '<p class="text-muted mb-0"><small>' . esc_html($error_data['message']) . '</small></p>';
+                                            }
+                                        } else {
+                                            // Texto simple
+                                            $error_html .= '<p class="text-muted mb-0"><small>' . esc_html($item['error_message']) . '</small></p>';
+                                        }
+                                        ?>
+                                        <tr class="bg-light">
+                                            <td colspan="9" class="small py-3">
+                                                <strong>Detalle:</strong>
+                                                <div class="mt-2">
+                                                    <?php echo $error_html; ?>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <?php $this->render_pagination($result['page'], $result['pages']); ?>
+        </div>
+
+        <!-- Modal para editar y reintentar contacto -->
+        <div class="modal fade" id="ilebenContactEditModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Editar y reintentar contacto</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <form id="ilebenContactEditForm" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="ileben_api_retry_contact_sync" />
+                        <input type="hidden" name="id" id="editContactId" value="" />
+                        <?php wp_nonce_field('ileben_api_retry_contact_sync'); ?>
+
+                        <div class="modal-body">
+                            <div id="editContactFields"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Reintentar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Diagnóstico inmediato
+            (function() {
+                console.log('[ileben-api] Diagnostic: página de contactos cargada');
+                console.log('[ileben-api] Diagnostic: buscando botones...');
+                var buttons = document.querySelectorAll('.ileben-edit-contact-btn');
+                console.log('[ileben-api] Diagnostic: ' + buttons.length + ' botones encontrados');
+
+                // Verificar si la función existe
+                var checkFunction = function() {
+                    if (typeof ilebenEditContactModal === 'function') {
+                        console.log('[ileben-api] Diagnostic: ilebenEditContactModal cargada ✓');
+                        return true;
+                    } else {
+                        console.log('[ileben-api] Diagnostic: ilebenEditContactModal NO cargada');
+                        return false;
+                    }
+                };
+
+                if (!checkFunction()) {
+                    console.log('[ileben-api] Diagnostic: esperando admin.js...');
+                    var attempt = 0;
+                    var interval = setInterval(function() {
+                        attempt++;
+                        if (checkFunction()) {
+                            clearInterval(interval);
+                        } else if (attempt > 50) { // 5 segundos
+                            clearInterval(interval);
+                            console.error('[ileben-api] Diagnostic: admin.js no se cargó');
+                        }
+                    }, 100);
+                }
+            })();
+        </script>
+    <?php
+        echo ob_get_clean();
+    }
 
     public function handle_save_plant()
     {
@@ -1074,6 +1462,116 @@ class Ileben_Api_Admin
         $this->redirect_with_flash('ileben-api-sync', 'success', $message);
     }
 
+    public function handle_retry_contact_sync()
+    {
+        $this->guard_permission();
+
+        $id = (int) ($_POST['id'] ?? 0);
+        check_admin_referer('ileben_api_retry_contact_sync');
+
+        if (! $id) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'ID de envio invalido.');
+        }
+
+        $log_item = $this->repository->find_contact_sync_log($id);
+        if (! is_array($log_item) || empty($log_item)) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'No se encontro el envio a reintentar.');
+        }
+
+        $payload = json_decode((string) ($log_item['payload_json'] ?? '{}'), true);
+        if (! is_array($payload)) {
+            $payload = array();
+        }
+
+        $channel = sanitize_text_field((string) ($payload['channel'] ?? $log_item['channel'] ?? ''));
+        $fields = isset($payload['fields']) && is_array($payload['fields']) ? $payload['fields'] : array();
+        $turnstile_token = sanitize_text_field((string) ($payload['turnstile_token'] ?? ''));
+
+        // Procesar campos editados del modal (field_* POST vars)
+        foreach ($_POST as $post_key => $post_value) {
+            if (strpos($post_key, 'field_') === 0) {
+                $field_name = substr($post_key, 6); // Quitar prefijo "field_"
+                $field_name = sanitize_key($field_name);
+                if ($field_name !== '') {
+                    $fields[$field_name] = sanitize_text_field((string) $post_value);
+                }
+            }
+        }
+
+        if ($channel === '' || empty($fields)) {
+            error_log('[ileben-api] Retry ' . $id . ': Payload insuficiente. Channel: ' . $channel . ', Fields: ' . wp_json_encode($fields));
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El payload guardado no tiene datos suficientes para reintentar.');
+        }
+
+        error_log('[ileben-api] Retry ' . $id . ': Reenviando con ' . count($fields) . ' campos. Channel: ' . $channel);
+        $this->repository->increment_contact_sync_retry($id);
+        $result = $this->api_client->submit_contact_submission($channel, $fields, $turnstile_token);
+
+        $status = 'failed';
+        if (! empty($result['success'])) {
+            $status = 'sent';
+        } elseif ((int) ($result['status_code'] ?? 0) === 422) {
+            $status = 'validation_error';
+        } elseif ((int) ($result['status_code'] ?? 0) === 429) {
+            $status = 'rate_limited';
+        }
+
+        $error_message = $this->build_error_message_from_result($result);
+
+        $this->repository->save_contact_sync_log(array(
+            'id' => $id,
+            'status' => $status,
+            'response_code' => (int) ($result['status_code'] ?? 0),
+            'response_body' => (string) ($result['raw_body'] ?? ''),
+            'error_message' => $error_message,
+            'remote_submission_id' => (int) (($result['data']['id'] ?? 0)),
+        ));
+
+        error_log('[ileben-api] Retry ' . $id . ': Status=' . $status . ', Code=' . (int) ($result['status_code'] ?? 0));
+
+        if ($status === 'sent') {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'success', 'Reintento enviado correctamente.');
+        }
+
+        $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El reintento no pudo completarse: ' . sanitize_text_field((string) ($result['message'] ?? 'Error desconocido.')));
+    }
+
+    private function build_error_message_from_result($result)
+    {
+        $base = sanitize_text_field((string) ($result['message'] ?? ''));
+        $errors = isset($result['errors']) && is_array($result['errors']) ? $result['errors'] : array();
+
+        if (empty($errors)) {
+            return $base;
+        }
+
+        $field_errors = array();
+        foreach ($errors as $field => $messages) {
+            $field = sanitize_text_field((string) $field);
+            if ($field === '') {
+                continue;
+            }
+
+            $clean_messages = array();
+            if (is_array($messages)) {
+                foreach ($messages as $msg) {
+                    $msg = sanitize_text_field((string) $msg);
+                    if ($msg !== '') {
+                        $clean_messages[] = $msg;
+                    }
+                }
+            } else {
+                $clean_messages[] = sanitize_text_field((string) $messages);
+            }
+
+            if (! empty($clean_messages)) {
+                $field_errors[$field] = $clean_messages;
+            }
+        }
+
+        return wp_json_encode(array('message' => $base, 'errors' => $field_errors));
+    }
+
     public function handle_save_settings()
     {
         $this->guard_permission();
@@ -1086,7 +1584,9 @@ class Ileben_Api_Admin
             'cotiza_url' => esc_url_raw(wp_unslash($_POST['cotiza_url'] ?? '')),
             'timeout' => (int) ($_POST['timeout'] ?? 15),
             'cron_enabled' => ! empty($_POST['cron_enabled']) ? 1 : 0,
+            'cron_interval_hours' => (int) ($_POST['cron_interval_hours'] ?? 1),
             'show_cover_image' => ! empty($_POST['show_cover_image']) ? 1 : 0,
+            'use_api_favicon' => ! empty($_POST['use_api_favicon']) ? 1 : 0,
         );
 
         if (empty($payload['api_endpoint'])) {
@@ -1097,6 +1597,25 @@ class Ileben_Api_Admin
         $this->api_client->schedule_cron();
 
         $this->redirect_with_flash('ileben-api-sync', 'success', 'Configuracion guardada correctamente.');
+    }
+
+    public function handle_toggle_favicon()
+    {
+        $this->guard_permission();
+        check_admin_referer('ileben_api_toggle_favicon');
+
+        $settings = $this->api_client->get_settings();
+        $settings['use_api_favicon'] = ! empty($_POST['use_api_favicon']) ? 1 : 0;
+
+        $this->api_client->save_settings($settings);
+
+        $this->redirect_with_flash(
+            'ileben-api-sync',
+            'success',
+            ! empty($settings['use_api_favicon'])
+                ? 'Favicon de la API activado.'
+                : 'Favicon de la API desactivado.'
+        );
     }
 
 
@@ -1152,7 +1671,7 @@ class Ileben_Api_Admin
 
         foreach ($items as $idx => $item) {
             $payload = $this->api_client->map_api_item($item);
-            
+
             if (empty($payload['external_id']) || empty($payload['nombre'])) {
                 $this->log_sync('Item ' . $idx . ': IGNORADO (external_id o nombre vacio)');
                 $errors++;
@@ -1202,7 +1721,7 @@ class Ileben_Api_Admin
 
     private function log_sync($message)
     {
-        if(!WP_DEBUG_LOG){
+        if (!WP_DEBUG_LOG) {
             return;
         }
 
@@ -1226,19 +1745,21 @@ class Ileben_Api_Admin
         }
 
         ob_start();
-        ?>
-        <nav class="mt-4"><ul class="pagination">
-        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-            <?php
-            $url = add_query_arg('paged', $i);
-            $active = $i === (int) $current_page ? ' active' : '';
-            ?>
-            <li class="page-item<?php echo esc_attr($active); ?>">
-                <a class="page-link" href="<?php echo esc_url($url); ?>"><?php echo (int) $i; ?></a>
-            </li>
-        <?php endfor; ?>
-        </ul></nav>
-        <?php
+    ?>
+        <nav class="mt-4">
+            <ul class="pagination">
+                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                    <?php
+                    $url = add_query_arg('paged', $i);
+                    $active = $i === (int) $current_page ? ' active' : '';
+                    ?>
+                    <li class="page-item<?php echo esc_attr($active); ?>">
+                        <a class="page-link" href="<?php echo esc_url($url); ?>"><?php echo (int) $i; ?></a>
+                    </li>
+                <?php endfor; ?>
+            </ul>
+        </nav>
+    <?php
         echo ob_get_clean();
     }
 
@@ -1257,9 +1778,9 @@ class Ileben_Api_Admin
         }
 
         ob_start();
-        ?>
+    ?>
         <div class="alert <?php echo esc_attr($classes); ?>" role="alert"><?php echo esc_html($message); ?></div>
-        <?php
+<?php
         echo ob_get_clean();
     }
 
@@ -1285,4 +1806,3 @@ class Ileben_Api_Admin
         }
     }
 }
-

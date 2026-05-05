@@ -25,6 +25,7 @@ class Ileben_Api_Plugin
         $repository = new Ileben_Api_Repository();
         $api_client = new Ileben_Api_Client();
 
+        add_filter('cron_schedules', array($api_client, 'register_cron_schedules'));
         add_action('plugins_loaded', array($api_client, 'schedule_cron'));
 
         $admin = new Ileben_Api_Admin($repository, $api_client);
@@ -32,6 +33,9 @@ class Ileben_Api_Plugin
 
         $shortcode = new Ileben_Api_Shortcode($repository);
         $shortcode->register();
+
+        $cf7_integration = new Ileben_Api_CF7_Integration($repository, $api_client);
+        $cf7_integration->register();
     }
 
     public function maybe_upgrade_database()
@@ -50,6 +54,12 @@ class Ileben_Api_Plugin
         return $wpdb->prefix . 'ileben_api';
     }
 
+    public static function get_contact_sync_table_name()
+    {
+        global $wpdb;
+        return $wpdb->prefix . 'ileben_api_contact_sync';
+    }
+
     private static function create_table()
     {
         global $wpdb;
@@ -57,6 +67,7 @@ class Ileben_Api_Plugin
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
         $table_name = self::get_table_name();
+        $contact_sync_table_name = self::get_contact_sync_table_name();
         $charset_collate = $wpdb->get_charset_collate();
 
         $sql = "CREATE TABLE {$table_name} (
@@ -97,6 +108,32 @@ class Ileben_Api_Plugin
         ) {$charset_collate};";
 
         dbDelta($sql);
+
+        $contact_sync_sql = "CREATE TABLE {$contact_sync_table_name} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            form_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            form_title VARCHAR(191) NOT NULL DEFAULT '',
+            channel VARCHAR(120) NOT NULL DEFAULT '',
+            status VARCHAR(40) NOT NULL DEFAULT 'failed',
+            contact_name VARCHAR(191) NOT NULL DEFAULT '',
+            contact_email VARCHAR(191) NOT NULL DEFAULT '',
+            payload_json LONGTEXT NULL,
+            response_code INT NOT NULL DEFAULT 0,
+            response_body LONGTEXT NULL,
+            error_message TEXT NULL,
+            retries INT UNSIGNED NOT NULL DEFAULT 0,
+            remote_submission_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY  (id),
+            KEY idx_status (status),
+            KEY idx_channel (channel),
+            KEY idx_contact_email (contact_email),
+            KEY idx_form_id (form_id),
+            KEY idx_created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta($contact_sync_sql);
     }
 
     private static function add_capabilities()

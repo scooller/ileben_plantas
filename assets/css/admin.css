@@ -62,3 +62,74 @@
     user-select: none;
     padding-top: 0.25rem;
 }
+
+.ileben-admin .ileben-code-sample {
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    color: #1f2328;
+}
+
+.ileben-admin .ileben-site-config-toggle {
+    margin-top: 1rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid #dbe2ea;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.ileben-admin .ileben-site-config-toggle__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.ileben-admin .ileben-site-config-toggle__label {
+    display: block;
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1f2328;
+}
+
+.ileben-admin .ileben-site-config-toggle .form-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding-left: 0;
+}
+
+.ileben-admin .ileben-site-config-toggle .form-check-input {
+    margin: 0;
+    float: none;
+    width: 2.75rem;
+    height: 1.5rem;
+    cursor: pointer;
+    background-repeat: no-repeat;
+}
+.ileben-admin .ileben-site-config-toggle input[type=checkbox]:checked::before{
+    visibility: hidden;
+}
+
+.ileben-admin .ileben-site-config-toggle__state {
+    min-width: 84px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #4b5563;
+    text-align: right;
+}
+
+@media (max-width: 767px) {
+    .ileben-admin .ileben-site-config-toggle__row {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .ileben-admin .ileben-site-config-toggle__state {
+        min-width: 0;
+        text-align: left;
+    }
+}

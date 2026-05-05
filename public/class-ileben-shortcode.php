@@ -8,6 +8,7 @@ class Ileben_Api_Shortcode
 {
     private $repository;
     private static $instance_counter = 0;
+    private $footer_site_config_rendered = false;
 
     public function __construct($repository)
     {
@@ -18,6 +19,8 @@ class Ileben_Api_Shortcode
     {
         add_shortcode('ileben_plantas', array($this, 'render'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_assets'));
+        add_action('wp_head', array($this, 'render_head_site_config_assets'), 100);
+        add_action('wp_footer', array($this, 'render_footer_site_config_style'), 100);
         add_action('wp_ajax_ileben_api_filter_plantas', array($this, 'handle_filter_plantas_ajax'));
         add_action('wp_ajax_nopriv_ileben_api_filter_plantas', array($this, 'handle_filter_plantas_ajax'));
     }
@@ -90,14 +93,184 @@ class Ileben_Api_Shortcode
             true
         );
 
-        // Inyectar variables CSS de la configuración del sitio.
-        if (class_exists('Ileben_Api_Client')) {
-            $api_client = new Ileben_Api_Client();
-            $brand_color = sanitize_hex_color((string) ($api_client->get_site_config()['brand_color'] ?? ''));
-            if (! empty($brand_color)) {
-                wp_add_inline_style('ileben-api-public', ':root { --leben-brand-color: ' . $brand_color . '; }');
+        // Mantener la variable legacy en el CSS principal para no romper estilos existentes.
+        $css_variables = $this->get_site_config_css_variables();
+        if (! empty($css_variables['--leben-brand-color'])) {
+            wp_add_inline_style('ileben-api-public', ':root { --leben-brand-color: ' . $css_variables['--leben-brand-color'] . '; }');
+        }
+
+        $google_fonts_stylesheet = $this->get_google_fonts_stylesheet();
+        if ($google_fonts_stylesheet !== '') {
+            wp_enqueue_style('ileben-api-google-fonts', $google_fonts_stylesheet, array(), null);
+        }
+    }
+
+    public function render_footer_site_config_style()
+    {
+        if ($this->footer_site_config_rendered || is_admin()) {
+            return;
+        }
+
+        $css_variables = $this->get_site_config_css_variables();
+        if (empty($css_variables)) {
+            return;
+        }
+
+        $declarations = array();
+        foreach (array('--primary', '--font-family', '--font-family-title', '--leben-brand-color') as $property) {
+            if (empty($css_variables[$property])) {
+                continue;
+            }
+
+            $declarations[] = $property . ': ' . $css_variables[$property];
+        }
+
+        if (empty($declarations)) {
+            return;
+        }
+
+        $this->footer_site_config_rendered = true;
+
+        echo '<style id="ileben-api-site-config-vars">:root { ' . esc_html(implode('; ', $declarations)) . '; }</style>';
+    }
+
+    public function render_head_site_config_assets()
+    {
+        if (is_admin()) {
+            return;
+        }
+
+        if (! $this->should_use_api_favicon()) {
+            return;
+        }
+
+        $favicon_url = $this->get_site_config_asset_url('favicon');
+        if ($favicon_url === '') {
+            return;
+        }
+
+        echo '<link rel="icon" href="' . esc_url($favicon_url) . '" />';
+    }
+
+    private function get_site_config_css_variables()
+    {
+        if (! class_exists('Ileben_Api_Client')) {
+            return array();
+        }
+
+        $api_client = new Ileben_Api_Client();
+        $site_config = $api_client->get_site_config();
+
+        if (! is_array($site_config)) {
+            return array();
+        }
+
+        $variables = array();
+
+        $brand_color = sanitize_hex_color((string) ($site_config['brand_color'] ?? ''));
+        if (! empty($brand_color)) {
+            $variables['--primary'] = $brand_color;
+            $variables['--leben-brand-color'] = $brand_color;
+        }
+
+        $font_family = $this->sanitize_css_font_family((string) ($site_config['font_family_body'] ?? ''));
+        if ($font_family !== '') {
+            $variables['--font-family'] = $font_family;
+        }
+
+        $font_family_heading = $this->sanitize_css_font_family((string) ($site_config['font_family_heading'] ?? ''));
+        if ($font_family_heading !== '') {
+            $variables['--font-family-title'] = $font_family_heading;
+        }
+
+        foreach (
+            array(
+                'logo' => '--logo-url',
+                'logo_dark' => '--logo-dark-url',
+                'logo_sale' => '--logo-sale-url',
+                'favicon' => '--favicon-url',
+            ) as $config_key => $property
+        ) {
+            $asset_url = $this->get_site_config_asset_url($config_key, $site_config);
+            if ($asset_url !== '') {
+                $variables[$property] = 'url("' . $asset_url . '")';
             }
         }
+
+        return $variables;
+    }
+
+    private function get_site_config_asset_url($key, $site_config = null)
+    {
+        if (! is_array($site_config)) {
+            if (! class_exists('Ileben_Api_Client')) {
+                return '';
+            }
+
+            $api_client = new Ileben_Api_Client();
+            $site_config = $api_client->get_site_config();
+        }
+
+        if (! is_array($site_config)) {
+            return '';
+        }
+
+        return esc_url_raw((string) ($site_config[$key] ?? ''));
+    }
+
+    private function get_google_fonts_stylesheet()
+    {
+        if (! class_exists('Ileben_Api_Client')) {
+            return '';
+        }
+
+        $api_client = new Ileben_Api_Client();
+        $site_config = $api_client->get_site_config();
+
+        if (! is_array($site_config)) {
+            return '';
+        }
+
+        $stylesheet = esc_url_raw((string) ($site_config['google_fonts_stylesheet'] ?? ''));
+        if ($stylesheet === '') {
+            return '';
+        }
+
+        $parts = wp_parse_url($stylesheet);
+        if (! is_array($parts)) {
+            return '';
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+
+        if ($scheme !== 'https' || $host !== 'fonts.googleapis.com') {
+            return '';
+        }
+
+        return $stylesheet;
+    }
+
+    private function should_use_api_favicon()
+    {
+        if (! class_exists('Ileben_Api_Client')) {
+            return false;
+        }
+
+        $api_client = new Ileben_Api_Client();
+        $settings = $api_client->get_settings();
+
+        return ! empty($settings['use_api_favicon']);
+    }
+
+    private function sanitize_css_font_family($font_family)
+    {
+        $font_family = trim(wp_strip_all_tags($font_family));
+        if ($font_family === '') {
+            return '';
+        }
+
+        return (string) preg_replace('/[^A-Za-z0-9,\-\s\"\']+/', '', $font_family);
     }
 
     public function render($atts)
@@ -188,7 +361,7 @@ class Ileben_Api_Shortcode
         $json_payload = wp_json_encode(array_values($items_payload));
 
         ob_start();
-        ?>
+?>
         <section class="ileben-showcase" id="<?php echo esc_attr($instance); ?>"
             data-ajax-url="<?php echo esc_url(admin_url('admin-ajax.php')); ?>"
             data-ajax-nonce="<?php echo esc_attr(wp_create_nonce('ileben_api_filter_plantas')); ?>"
@@ -278,19 +451,21 @@ class Ileben_Api_Shortcode
                             <div class="col-6 text-end"><span class="ileben-k">&nbsp;</span>
                                 <div class="btn-group" role="group" aria-label="Acciones">
                                     <a class="btn btn-primary" data-field="cotizar_btn" data-bs-toggle="tooltip" data-bs-title="Ir al Cotizador" href="#" target="_blank" rel="noopener">
-                                        <i class="fa-solid fa-arrow-up-right-from-square"></i> 
+                                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
                                         Cotizar
                                     </a>
                                     <a class="btn btn-secondary" data-field="brochure_btn" data-bs-toggle="tooltip" data-bs-title="Descargar brochure" href="#" target="_blank" rel="noopener" download>
-                                        <i class="fa-regular fa-file-lines"></i> 
+                                        <i class="fa-regular fa-file-lines"></i>
                                         Brochure
                                     </a>
                                 </div>
                             </div>
-                        </div>                        
+                        </div>
                     </div>
                 </div>
-                <script type="application/json" id="<?php echo esc_attr($instance); ?>-data"><?php echo $json_payload; ?></script>
+                <script type="application/json" id="<?php echo esc_attr($instance); ?>-data">
+                    <?php echo $json_payload; ?>
+                </script>
                 <div class="ileben-lightbox" aria-hidden="true">
                     <button type="button" class="ileben-lightbox-close" data-lightbox-close aria-label="Cerrar">x</button>
                     <img src="" alt="Imagen interior" data-lightbox-image>
@@ -301,7 +476,7 @@ class Ileben_Api_Shortcode
                 <small class="ileben-showcase-credit">Total plantas <?php echo esc_html($total_plantas ?? ''); ?>, mostrando <span class="show_plantas"></span> plantas</small>
             </div>
         </section>
-        <?php
+<?php
         return ob_get_clean();
     }
 
@@ -541,4 +716,3 @@ class Ileben_Api_Shortcode
         return (string) $numero;
     }
 }
-
