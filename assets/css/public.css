@@ -124,6 +124,9 @@
 .ileben-carousel-col {
     min-width: 0;
 } */
+.ileben-carousel-col .carousel-inner{
+    height: 100%;
+}
 
 .ileben-plan-image {
     width: 100%;
