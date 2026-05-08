@@ -272,6 +272,7 @@ if (typeof jQuery !== 'undefined') {
                                 <th>Tipo de planta</th>
                                 <th>Precio Base</th>
                                 <th>Precio Lista</th>
+                                <th>Precio Final</th>
                                 <th>Banos</th>
                                 <th>Dormitorios</th>
                                 <th>Estado</th>
@@ -281,7 +282,7 @@ if (typeof jQuery !== 'undefined') {
                         <tbody>
                             <?php if (empty($result['items'])): ?>
                                 <tr>
-                                    <td colspan="9" class="text-center py-4">No hay plantas registradas.</td>
+                                    <td colspan="10" class="text-center py-4">No hay plantas registradas.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($result['items'] as $item): ?>
@@ -300,6 +301,7 @@ if (typeof jQuery !== 'undefined') {
                                         <td><?php echo esc_html((string) ($item['tipo_producto'] ?? '-')); ?></td>
                                         <td>$ <?php echo number_format((float) ($item['precio_base'] ?? 0), 2, '.', ','); ?></td>
                                         <td>$ <?php echo number_format((float) ($item['precio_lista'] ?? $item['precio'] ?? 0), 2, '.', ','); ?></td>
+                                        <td>$ <?php echo number_format((float) ($item['precio_final'] ?? $item['precio'] ?? 0), 2, '.', ','); ?></td>
                                         <td><?php echo (int) $item['banos']; ?></td>
                                         <td><?php echo (int) $item['dormitorios']; ?></td>
                                         <td><span class="badge text-bg-secondary"><?php echo esc_html($this->repository->get_states()[$item['estado']] ?? $item['estado']); ?></span></td>
@@ -341,6 +343,7 @@ if (typeof jQuery !== 'undefined') {
             'precio' => 0,
             'precio_base' => 0,
             'precio_lista' => 0,
+            'precio_final' => 0,
             'banos' => 0,
             'dormitorios' => 0,
             'metros_cuadrados' => 0,
@@ -413,13 +416,17 @@ if (typeof jQuery !== 'undefined') {
                                 <label class="form-label">Descripcion</label>
                                 <textarea class="form-control" name="descripcion" rows="4"><?php echo esc_textarea($plant['descripcion']); ?></textarea>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label">Precio Base</label>
                                 <input class="form-control" step="0.01" min="0" type="number" name="precio_base" value="<?php echo esc_attr((string) ($plant['precio_base'] ?? 0)); ?>" />
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label">Precio Lista</label>
                                 <input class="form-control" step="0.01" min="0" type="number" name="precio_lista" value="<?php echo esc_attr((string) ($plant['precio_lista'] ?? $plant['precio'] ?? 0)); ?>" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Precio Final</label>
+                                <input class="form-control" step="0.01" min="0" type="number" name="precio_final" value="<?php echo esc_attr((string) ($plant['precio_final'] ?? $plant['precio'] ?? 0)); ?>" />
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Banos</label>
@@ -596,7 +603,7 @@ if (typeof jQuery !== 'undefined') {
                         'ileben_api_download_csv_sample'
                     );
                     ?>
-                    <p class="text-muted">Columnas esperadas: external_id, nombre, descripcion, precio_base, precio_lista, banos, dormitorios, metros_cuadrados, tipologia, planta_label, orientacion, superficie_interior, terraza_m2, superficie_total, foto_portada, foto_interior, brochure, cotizacion_url, estado.</p>
+                    <p class="text-muted">Columnas esperadas: external_id, nombre, descripcion, precio_base, precio_lista, precio_final, banos, dormitorios, metros_cuadrados, tipologia, planta_label, orientacion, superficie_interior, terraza_m2, superficie_total, foto_portada, foto_interior, brochure, cotizacion_url, estado.</p>
                     <p><a class="btn btn-outline-secondary" href="<?php echo esc_url($sample_url); ?>">Descargar CSV de ejemplo</a></p>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data">
                         <input type="hidden" name="action" value="ileben_api_import_csv" />
@@ -666,9 +673,10 @@ if (typeof jQuery !== 'undefined') {
                                 <label class="form-label">Precio a mostrar</label>
                                 <select class="form-select" name="price_display_mode">
                                     <option value="base" <?php selected((string) ($settings['price_display_mode'] ?? 'base'), 'base'); ?>>Precio base</option>
+                                    <option value="lista" <?php selected((string) ($settings['price_display_mode'] ?? 'base'), 'lista'); ?>>Precio lista</option>
                                     <option value="final" <?php selected((string) ($settings['price_display_mode'] ?? 'base'), 'final'); ?>>Precio final</option>
                                 </select>
-                                <small class="text-muted d-block mt-1">Define el precio que se muestra en el shortcode de plantas.</small>
+                                <small class="text-muted d-block mt-1">Define el precio que se muestra en el shortcode. Base: fallback a lista y final. Lista: fallback a final y base. Final: fallback a base.</small>
                             </div>
 
                             <div class="col-md-4 d-flex align-items-end">
@@ -1232,6 +1240,7 @@ if (typeof jQuery !== 'undefined') {
             'descripcion' => sanitize_textarea_field($_POST['descripcion'] ?? ''),
             'precio_base' => (float) ($_POST['precio_base'] ?? 0),
             'precio_lista' => (float) ($_POST['precio_lista'] ?? 0),
+            'precio_final' => (float) ($_POST['precio_final'] ?? 0),
             'banos' => (int) ($_POST['banos'] ?? 0),
             'dormitorios' => (int) ($_POST['dormitorios'] ?? 0),
             'metros_cuadrados' => (float) ($_POST['metros_cuadrados'] ?? 0),
@@ -1357,8 +1366,16 @@ if (typeof jQuery !== 'undefined') {
                 $item['brochure'] = trim((string) $item['brochure_url']);
             }
 
+            if (empty($item['precio_final']) && ! empty($item['precio_lista'])) {
+                $item['precio_final'] = trim((string) $item['precio_lista']);
+            }
+
             if (empty($item['precio_lista']) && ! empty($item['precio'])) {
                 $item['precio_lista'] = trim((string) $item['precio']);
+            }
+
+            if (empty($item['precio_final']) && ! empty($item['precio'])) {
+                $item['precio_final'] = trim((string) $item['precio']);
             }
 
             if (empty($item['precio_base']) && ! empty($item['precio'])) {
@@ -1415,8 +1432,8 @@ if (typeof jQuery !== 'undefined') {
             wp_die('No se pudo generar el CSV de ejemplo.');
         }
 
-        fputcsv($out, array('external_id', 'nombre', 'descripcion', 'precio_base', 'precio_lista', 'banos', 'dormitorios', 'metros_cuadrados', 'tipologia', 'planta_label', 'orientacion', 'superficie_interior', 'terraza_m2', 'superficie_total', 'foto_portada', 'foto_interior', 'brochure', 'cotizacion_url', 'estado'));
-        fputcsv($out, array('APT-001', 'Departamento Norte', 'Planta con vista al jardin', '118000', '120000', '1', '1', '44.78', '1 dormitorio + 1 bano', 'A: 501 al 701', 'Poniente', '41.00', '3.78', '44.78', 'https://example.com/portada.jpg', 'https://example.com/interior.jpg', 'https://example.com/brochure.pdf', 'https://example.com/cotiza', 'disponible'));
+        fputcsv($out, array('external_id', 'nombre', 'descripcion', 'precio_base', 'precio_lista', 'precio_final', 'banos', 'dormitorios', 'metros_cuadrados', 'tipologia', 'planta_label', 'orientacion', 'superficie_interior', 'terraza_m2', 'superficie_total', 'foto_portada', 'foto_interior', 'brochure', 'cotizacion_url', 'estado'));
+        fputcsv($out, array('APT-001', 'Departamento Norte', 'Planta con vista al jardin', '118000', '119500', '120000', '1', '1', '44.78', '1 dormitorio + 1 bano', 'A: 501 al 701', 'Poniente', '41.00', '3.78', '44.78', 'https://example.com/portada.jpg', 'https://example.com/interior.jpg', 'https://example.com/brochure.pdf', 'https://example.com/cotiza', 'disponible'));
 
         fclose($out);
         exit;

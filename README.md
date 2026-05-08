@@ -2,9 +2,12 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
-Version actual: 0.1.8
+Version actual: 0.2.1
 
 ## Novedades recientes
+
+- **Selector de precio visible**: Desde la configuracion del plugin ahora se puede elegir si el frontend muestra `precio base` o `precio final`.
+- **Compatibilidad con `precio_final`**: La sincronizacion desde API considera el nuevo campo `precio_final` y lo usa como fallback del precio final mostrado.
 
 - **Errores detallados en Sync Contactos**: Al reintentar un contacto fallido, ahora muestra errores especificos por campo (ej: "email: Email is required" en lugar de "validation.required").
 - **Modal para editar antes de reintentar**: Botón "Editar y reintentar" abre un formulario donde puedes corregir los datos antes de re-enviar.
@@ -34,6 +37,7 @@ Version actual: 0.1.8
 - **Importacion CSV**: Carga masiva con upsert por `external_id` y descarga de CSV de ejemplo
 - **Frontend moderno**: Shortcode con carousel, filtros dinamicos (tipologia/tipo_producto/piso/planta), panel de detalles y lightbox
 - **Cotizacion flexible**: Boton "Cotizar" por planta con fallback global desde configuracion del plugin
+- **Precio configurable en frontend**: Permite mostrar precio base o precio final segun configuracion del admin
 - **Media Library**: Integracion nativa con biblioteca multimedia de WordPress para imagenes y brochures
 - **CRON automatico**: Sincronizacion horaria opcional configurable desde el admin del plugin
 - **Multi-proyecto**: Soporte para filtrar y sincronizar plantas de proyectos especificos
@@ -76,6 +80,7 @@ Version actual: 0.1.8
 	- importacion CSV con upsert por external_id y CSV de ejemplo descargable
 	- sincronizacion manual con API externa
   - configuracion de API, Bearer Token y cron desde el admin del plugin
+	- selector de precio visible en frontend: base o final
 	- imagen unica por planta usando la biblioteca multimedia de WordPress
 	- brochure opcional por planta (archivo descargable)
   - URL de cotizacion opcional por planta (fallback a URL Cotizar por defecto del plugin)
@@ -186,6 +191,7 @@ Campos disponibles:
 | `Proyecto ID` | No | ID del proyecto a filtrar. Si se configura, solo sincroniza plantas de ese proyecto | `29` |
 | `Bearer Token` | No | Token de autorizacion. Se envia como `Authorization: Bearer <token>` | `tu-token-secret` |
 | `URL Cotizar por defecto` | No | URL global del boton Cotizar cuando la planta no tiene `cotizacion_url` propia | `https://...` |
+| `Precio a mostrar` | No | Define si el shortcode/frontend muestra el precio base, precio lista o precio final | `base` / `lista` / `final` |
 | `Timeout` | No | Timeout de peticiones HTTP en segundos (min: 5, max: 120) | `30` |
 | `Sincronizacion automatica (CRON)` | No | Activa la sincronizacion por CRON | `Activado` |
 | `Intervalo CRON (horas)` | No | Define cada cuantas horas corre la sincronizacion automatica (min: 1, max: 24) | `3` |
@@ -209,7 +215,7 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plantas` de la siguient
 | external_id | salesforce_product_id | Directo | ID unico de Salesforce, clave para upsert |
 | nombre | name | Directo | Numero de planta (ej: "203", "101") |
 | descripcion | proyecto.descripcion | Directo | Descripcion del proyecto padre |
-| precio | precio_lista / precio_base | Fallback | Prioriza precio_lista, sino usa precio_base |
+| precio | precio_final / precio_base | Fallback | Prioriza `precio_final` como valor final; si no viene usa `precio_base`. Internamente acepta `precio_lista` por compatibilidad heredada |
 | dormitorios | programa2 / programa | Extraccion por patron | Busca patron N+D (ej: "2D+2B" → 2) |
 | banos | programa2 / programa | Extraccion por patron | Busca patron N+B (ej: "2D+2B" → 2) |
 | metros_cuadrados | superficie_total_principal | Directo | Superficie principal total |
@@ -228,6 +234,13 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plantas` de la siguient
 **Campos opcionales no siempre presentes en API**:
 - `brochure` (si no viene desde API puede cargarse manualmente en admin)
 
+### Logica de precio mostrada en frontend
+
+- Si en configuracion eliges `Precio base`, el shortcode muestra `precio_base` y si no existe usa `precio_lista` o `precio_final` como fallback.
+- Si en configuracion eliges `Precio lista`, el shortcode muestra `precio_lista`; si no existe usa `precio_final` y luego `precio_base`.
+- Si en configuracion eliges `Precio final`, el shortcode muestra `precio_final` cuando viene desde la API; si no, usa `precio_base`.
+- Este ajuste afecta la visualizacion publica, no modifica el valor almacenado manualmente en la ficha admin.
+
 **Extraccion de dormitorios y banos:**
 - El metodo de extraccion usa patrones por tipo (`D` para dormitorios, `B` para banos).
 - Ejemplo: "2D+2B" -> dormitorios=2, banos=2.
@@ -235,11 +248,13 @@ El plugin mapea automaticamente la respuesta de `/api/v1/plantas` de la siguient
 
 Cabeceras esperadas:
 
-`external_id,nombre,descripcion,precio_base,precio_lista,banos,dormitorios,metros_cuadrados,tipologia,planta_label,orientacion,superficie_interior,terraza_m2,superficie_total,foto_portada,foto_interior,brochure,cotizacion_url,estado`
+`external_id,nombre,descripcion,precio_base,precio_lista,precio_final,banos,dormitorios,metros_cuadrados,tipologia,planta_label,orientacion,superficie_interior,terraza_m2,superficie_total,foto_portada,foto_interior,brochure,cotizacion_url,estado`
 
 Notas:
 
 - `external_id` y `nombre` son obligatorios.
+- El backend soporta los tres precios: `precio_base`, `precio_lista` y `precio_final`.
+- Si un CSV antiguo no trae `precio_final`, el importador puede heredarlo desde `precio_lista` para mantener compatibilidad.
 - `foto_portada` y `foto_interior` contienen URLs de imagen por planta.
 - `brochure` es opcional y admite URL de archivo (por ejemplo PDF).
 - `cotizacion_url` es opcional; si viene vacio se usa la URL Cotizar por defecto del plugin.
@@ -327,7 +342,7 @@ Si activaste la opcion de sincronizacion horaria (CRON) en la configuracion del 
       "orientacion": "SP",
       "programa": "3D+2B",
       "programa2": "3D+2B",
-      "precio_lista": "10228.68",
+      "precio_final": "10228.68",
       "superficie_total_principal": "90.64",
       "superficie_interior": "0.00",
       "superficie_terraza": "16.11",

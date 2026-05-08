@@ -514,8 +514,9 @@ class Ileben_Api_Shortcode
         $brochure = $this->normalize_frontend_url((string) ($item['brochure'] ?? ''));
 
         $precio_base = (float) ($item['precio_base'] ?? 0);
-        $precio_final = (float) ($item['precio_lista'] ?? $item['precio'] ?? 0);
-        $display_price = $this->resolve_display_price($precio_base, $precio_final);
+        $precio_lista = (float) ($item['precio_lista'] ?? 0);
+        $precio_final = (float) ($item['precio_final'] ?? $item['precio'] ?? $precio_lista);
+        $display_price = $this->resolve_display_price($precio_base, $precio_lista, $precio_final);
 
         return array(
             'id' => (int) ($item['id'] ?? 0),
@@ -533,7 +534,8 @@ class Ileben_Api_Shortcode
             'superficie_total' => (float) ($item['superficie_total'] ?? 0),
             'precio' => (float) ($item['precio'] ?? 0),
             'precio_base' => $display_price,
-            'precio_lista' => $precio_final,
+            'precio_lista' => $precio_lista,
+            'precio_final' => $precio_final,
             'dorm_bano' => trim($dormitorios . ' dorm + ' . $banos . ' baño'),
             'imagen' => esc_url_raw($image),
             'imagen_interior' => esc_url_raw($interior_image),
@@ -678,19 +680,28 @@ class Ileben_Api_Shortcode
         $settings = $api_client->get_settings();
         $mode = sanitize_key((string) ($settings['price_display_mode'] ?? 'base'));
 
-        return in_array($mode, array('base', 'final'), true) ? $mode : 'base';
+        return in_array($mode, array('base', 'lista', 'final'), true) ? $mode : 'base';
     }
 
-    private function resolve_display_price($precio_base, $precio_final)
+    private function resolve_display_price($precio_base, $precio_lista, $precio_final)
     {
         $precio_base = (float) $precio_base;
+        $precio_lista = (float) $precio_lista;
         $precio_final = (float) $precio_final;
+
+        if ($this->get_price_display_mode() === 'lista') {
+            if ($precio_lista > 0) {
+                return $precio_lista;
+            }
+
+            return $precio_final > 0 ? $precio_final : $precio_base;
+        }
 
         if ($this->get_price_display_mode() === 'final') {
             return $precio_final > 0 ? $precio_final : $precio_base;
         }
 
-        return $precio_base > 0 ? $precio_base : $precio_final;
+        return $precio_base > 0 ? $precio_base : ($precio_lista > 0 ? $precio_lista : $precio_final);
     }
 
     private function normalize_frontend_url($url)

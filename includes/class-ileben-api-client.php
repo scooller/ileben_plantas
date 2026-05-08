@@ -433,7 +433,7 @@ class Ileben_Api_Client
         $settings = wp_parse_args($settings, $this->get_default_settings());
 
         $price_display_mode = sanitize_key((string) ($settings['price_display_mode'] ?? 'base'));
-        if (! in_array($price_display_mode, array('base', 'final'), true)) {
+        if (! in_array($price_display_mode, array('base', 'lista', 'final'), true)) {
             $price_display_mode = 'base';
         }
 
@@ -488,10 +488,7 @@ class Ileben_Api_Client
         $precio_base = (float) ($item['precio_base'] ?? 0);
         $precio_final = (float) ($item['precio_final'] ?? $item['precioFinal'] ?? 0);
         $precio_lista = (float) ($item['precio_lista'] ?? 0);
-        if ($precio_lista <= 0 && $precio_final > 0) {
-            $precio_lista = $precio_final;
-        }
-        $precio = $precio_lista > 0 ? $precio_lista : $precio_base;
+        $precio = $precio_final > 0 ? $precio_final : ($precio_lista > 0 ? $precio_lista : $precio_base);
         if ($precio <= 0) {
             $precio = $precio_base;
         }
@@ -519,6 +516,7 @@ class Ileben_Api_Client
             'precio' => $precio,
             'precio_base' => $precio_base,
             'precio_lista' => $precio_lista,
+            'precio_final' => $precio_final,
             'dormitorios' => $dormitorios,
             'banos' => $banos,
             'metros_cuadrados' => (float) ($item['superficie_total_principal'] ?? 0),

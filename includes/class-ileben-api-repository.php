@@ -463,9 +463,10 @@ class Ileben_Api_Repository
 
         $precio_base = (float) ($data['precio_base'] ?? 0);
         $precio_lista = (float) ($data['precio_lista'] ?? 0);
+        $precio_final = (float) ($data['precio_final'] ?? 0);
         $precio = (float) ($data['precio'] ?? 0);
         if ($precio <= 0) {
-            $precio = $precio_lista > 0 ? $precio_lista : $precio_base;
+            $precio = $precio_final > 0 ? $precio_final : ($precio_lista > 0 ? $precio_lista : $precio_base);
         }
 
         return array(
@@ -476,6 +477,7 @@ class Ileben_Api_Repository
             'precio' => $precio,
             'precio_base' => $precio_base,
             'precio_lista' => $precio_lista,
+            'precio_final' => $precio_final,
             'banos' => max(0, (int) ($data['banos'] ?? 0)),
             'dormitorios' => max(0, (int) ($data['dormitorios'] ?? 0)),
             'metros_cuadrados' => (float) ($data['metros_cuadrados'] ?? 0),
@@ -537,6 +539,7 @@ class Ileben_Api_Repository
             'precio' => '%f',
             'precio_base' => '%f',
             'precio_lista' => '%f',
+            'precio_final' => '%f',
             'banos' => '%d',
             'dormitorios' => '%d',
             'metros_cuadrados' => '%f',
