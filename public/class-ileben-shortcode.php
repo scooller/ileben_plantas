@@ -513,6 +513,10 @@ class Ileben_Api_Shortcode
         $cotizacion_url = $this->normalize_frontend_url($cotizacion_url);
         $brochure = $this->normalize_frontend_url((string) ($item['brochure'] ?? ''));
 
+        $precio_base = (float) ($item['precio_base'] ?? 0);
+        $precio_final = (float) ($item['precio_lista'] ?? $item['precio'] ?? 0);
+        $display_price = $this->resolve_display_price($precio_base, $precio_final);
+
         return array(
             'id' => (int) ($item['id'] ?? 0),
             'name' => (string) ($item['nombre'] ?? ''),
@@ -528,8 +532,8 @@ class Ileben_Api_Shortcode
             'terraza_m2' => (float) ($item['terraza_m2'] ?? 0),
             'superficie_total' => (float) ($item['superficie_total'] ?? 0),
             'precio' => (float) ($item['precio'] ?? 0),
-            'precio_base' => (float) ($item['precio_base'] ?? 0),
-            'precio_lista' => (float) ($item['precio_lista'] ?? $item['precio'] ?? 0),
+            'precio_base' => $display_price,
+            'precio_lista' => $precio_final,
             'dorm_bano' => trim($dormitorios . ' dorm + ' . $banos . ' baño'),
             'imagen' => esc_url_raw($image),
             'imagen_interior' => esc_url_raw($interior_image),
@@ -662,6 +666,31 @@ class Ileben_Api_Shortcode
         $api_client = new Ileben_Api_Client();
         $settings = $api_client->get_settings();
         return ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']);
+    }
+
+    private function get_price_display_mode()
+    {
+        if (! class_exists('Ileben_Api_Client')) {
+            return 'base';
+        }
+
+        $api_client = new Ileben_Api_Client();
+        $settings = $api_client->get_settings();
+        $mode = sanitize_key((string) ($settings['price_display_mode'] ?? 'base'));
+
+        return in_array($mode, array('base', 'final'), true) ? $mode : 'base';
+    }
+
+    private function resolve_display_price($precio_base, $precio_final)
+    {
+        $precio_base = (float) $precio_base;
+        $precio_final = (float) $precio_final;
+
+        if ($this->get_price_display_mode() === 'final') {
+            return $precio_final > 0 ? $precio_final : $precio_base;
+        }
+
+        return $precio_base > 0 ? $precio_base : $precio_final;
     }
 
     private function normalize_frontend_url($url)

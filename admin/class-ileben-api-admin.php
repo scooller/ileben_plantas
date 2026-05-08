@@ -662,6 +662,15 @@ if (typeof jQuery !== 'undefined') {
                                 <input class="form-control" type="url" name="cotiza_url" value="<?php echo esc_attr((string) ($settings['cotiza_url'] ?? '')); ?>" placeholder="https://..." />
                             </div>
 
+                            <div class="col-md-4">
+                                <label class="form-label">Precio a mostrar</label>
+                                <select class="form-select" name="price_display_mode">
+                                    <option value="base" <?php selected((string) ($settings['price_display_mode'] ?? 'base'), 'base'); ?>>Precio base</option>
+                                    <option value="final" <?php selected((string) ($settings['price_display_mode'] ?? 'base'), 'final'); ?>>Precio final</option>
+                                </select>
+                                <small class="text-muted d-block mt-1">Define el precio que se muestra en el shortcode de plantas.</small>
+                            </div>
+
                             <div class="col-md-4 d-flex align-items-end">
                                 <div class="mb-2">
                                     <div class="form-check">
@@ -1582,6 +1591,7 @@ if (typeof jQuery !== 'undefined') {
             'api_token' => sanitize_text_field(wp_unslash($_POST['api_token'] ?? '')),
             'proyecto_id' => sanitize_text_field(wp_unslash($_POST['proyecto_id'] ?? '')),
             'cotiza_url' => esc_url_raw(wp_unslash($_POST['cotiza_url'] ?? '')),
+            'price_display_mode' => sanitize_key(wp_unslash($_POST['price_display_mode'] ?? 'base')),
             'timeout' => (int) ($_POST['timeout'] ?? 15),
             'cron_enabled' => ! empty($_POST['cron_enabled']) ? 1 : 0,
             'cron_interval_hours' => (int) ($_POST['cron_interval_hours'] ?? 1),

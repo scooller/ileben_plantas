@@ -422,6 +422,7 @@ class Ileben_Api_Client
             'timeout' => 15,
             'cron_enabled' => 0,
             'cron_interval_hours' => 1,
+            'price_display_mode' => 'base',
             'show_cover_image' => 1,
             'use_api_favicon' => 1,
         );
@@ -431,6 +432,11 @@ class Ileben_Api_Client
     {
         $settings = wp_parse_args($settings, $this->get_default_settings());
 
+        $price_display_mode = sanitize_key((string) ($settings['price_display_mode'] ?? 'base'));
+        if (! in_array($price_display_mode, array('base', 'final'), true)) {
+            $price_display_mode = 'base';
+        }
+
         return array(
             'api_endpoint' => esc_url_raw(trim((string) ($settings['api_endpoint'] ?? ''))),
             'api_token' => trim((string) ($settings['api_token'] ?? '')),
@@ -439,6 +445,7 @@ class Ileben_Api_Client
             'timeout' => min(120, max(5, (int) ($settings['timeout'] ?? 15))),
             'cron_enabled' => ! empty($settings['cron_enabled']) ? 1 : 0,
             'cron_interval_hours' => min(24, max(1, (int) ($settings['cron_interval_hours'] ?? 1))),
+            'price_display_mode' => $price_display_mode,
             'show_cover_image' => ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']) ? 1 : 0,
             'use_api_favicon' => ! isset($settings['use_api_favicon']) || ! empty($settings['use_api_favicon']) ? 1 : 0,
         );
@@ -479,7 +486,11 @@ class Ileben_Api_Client
         }
 
         $precio_base = (float) ($item['precio_base'] ?? 0);
+        $precio_final = (float) ($item['precio_final'] ?? $item['precioFinal'] ?? 0);
         $precio_lista = (float) ($item['precio_lista'] ?? 0);
+        if ($precio_lista <= 0 && $precio_final > 0) {
+            $precio_lista = $precio_final;
+        }
         $precio = $precio_lista > 0 ? $precio_lista : $precio_base;
         if ($precio <= 0) {
             $precio = $precio_base;
