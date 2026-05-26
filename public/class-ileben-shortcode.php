@@ -450,7 +450,7 @@ class Ileben_Api_Shortcode
                             </div>
                             <div class="col-6 text-end"><span class="ileben-k">&nbsp;</span>
                                 <div class="btn-group" role="group" aria-label="Acciones">
-                                    <a class="btn btn-primary" data-field="cotizar_btn" data-bs-toggle="tooltip" data-bs-title="Ir al Cotizador" href="#" target="_blank" rel="noopener">
+                                    <a class="btn btn-primary btn-cotizar" data-field="cotizar_btn" data-bs-toggle="tooltip" data-bs-title="Ir al Cotizador" href="#" target="_blank" rel="noopener">
                                         <i class="fa-solid fa-arrow-up-right-from-square"></i>
                                         Cotizar
                                     </a>
@@ -510,6 +510,7 @@ class Ileben_Api_Shortcode
             }
         }
 
+        $cotizacion_url = $this->append_missing_utm_params($cotizacion_url);
         $cotizacion_url = $this->normalize_frontend_url($cotizacion_url);
         $brochure = $this->normalize_frontend_url((string) ($item['brochure'] ?? ''));
 
@@ -657,6 +658,105 @@ class Ileben_Api_Shortcode
         $api_client = new Ileben_Api_Client();
         $settings = $api_client->get_settings();
         return esc_url_raw((string) ($settings['cotiza_url'] ?? ''));
+    }
+
+    private function append_missing_utm_params($url)
+    {
+        $url = esc_url_raw((string) $url);
+        if ($url === '') {
+            return '';
+        }
+
+        $tracked_keys = $this->get_tracked_utm_keys();
+        if (empty($tracked_keys)) {
+            return $url;
+        }
+
+        if ($this->url_has_any_utm_param($url, $tracked_keys)) {
+            return $url;
+        }
+
+        $utm_values = $this->get_current_utm_values($tracked_keys);
+        if (empty($utm_values)) {
+            return $url;
+        }
+
+        return esc_url_raw(add_query_arg($utm_values, $url));
+    }
+
+    private function get_tracked_utm_keys()
+    {
+        $default_keys = array('utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content');
+        $params = get_option('utm_tag_leben_params', array());
+
+        if (! is_array($params) || empty($params)) {
+            return $default_keys;
+        }
+
+        $keys = array();
+        foreach ($params as $param) {
+            if (! is_array($param)) {
+                continue;
+            }
+
+            $key = sanitize_key((string) ($param['key'] ?? ''));
+            if ($key !== '') {
+                $keys[] = $key;
+            }
+        }
+
+        if (empty($keys)) {
+            return $default_keys;
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    private function url_has_any_utm_param($url, $keys)
+    {
+        $parts = wp_parse_url((string) $url);
+        if (! is_array($parts)) {
+            return false;
+        }
+
+        $query_string = (string) ($parts['query'] ?? '');
+        if ($query_string === '') {
+            return false;
+        }
+
+        $query = array();
+        parse_str($query_string, $query);
+
+        foreach ($keys as $key) {
+            if (array_key_exists((string) $key, $query)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function get_current_utm_values($keys)
+    {
+        $storage_type = sanitize_key((string) get_option('utm_tag_leben_storage_type', 'cookie'));
+        $values = array();
+
+        foreach ($keys as $key) {
+            $raw_value = '';
+
+            if ($storage_type === 'session' && isset($_SESSION) && is_array($_SESSION) && isset($_SESSION[$key])) {
+                $raw_value = (string) $_SESSION[$key];
+            } elseif (isset($_COOKIE[$key])) {
+                $raw_value = (string) $_COOKIE[$key];
+            }
+
+            $value = sanitize_text_field(wp_unslash($raw_value));
+            if ($value !== '') {
+                $values[(string) $key] = $value;
+            }
+        }
+
+        return $values;
     }
 
     private function should_show_cover_image()

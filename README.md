@@ -2,10 +2,11 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
-Version actual: 0.2.1
+Version actual: 0.2.2
 
 ## Novedades recientes
 
+- **UTM en boton Cotizar sin duplicados**: Si la URL de `cotizacion_url` no trae UTM, el plugin agrega los parametros UTM capturados por `utm-tag-leben` (desde sesion o cookie segun configuracion). Si la URL ya trae al menos un UTM, no se modifica para evitar duplicacion o sobreescritura.
 - **Selector de precio visible**: Desde la configuracion del plugin ahora se puede elegir si el frontend muestra `precio base` o `precio final`.
 - **Compatibilidad con `precio_final`**: La sincronizacion desde API considera el nuevo campo `precio_final` y lo usa como fallback del precio final mostrado.
 
@@ -37,6 +38,7 @@ Version actual: 0.2.1
 - **Importacion CSV**: Carga masiva con upsert por `external_id` y descarga de CSV de ejemplo
 - **Frontend moderno**: Shortcode con carousel, filtros dinamicos (tipologia/tipo_producto/piso/planta), panel de detalles y lightbox
 - **Cotizacion flexible**: Boton "Cotizar" por planta con fallback global desde configuracion del plugin
+- **UTM-aware en cotizacion**: La URL de cotizacion agrega UTM faltantes desde `utm-tag-leben` y conserva URLs que ya traen UTM para evitar duplicados
 - **Precio configurable en frontend**: Permite mostrar precio base o precio final segun configuracion del admin
 - **Media Library**: Integracion nativa con biblioteca multimedia de WordPress para imagenes y brochures
 - **CRON automatico**: Sincronizacion horaria opcional configurable desde el admin del plugin
