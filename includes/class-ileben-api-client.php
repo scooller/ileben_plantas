@@ -336,10 +336,11 @@ class Ileben_Api_Client
     private function get_request_args($settings)
     {
         $headers = array('Accept' => 'application/json');
+        $api_token = $this->normalize_api_token((string) ($settings['api_token'] ?? ''));
 
         // authorization header en minusculas como lo requiere la API
-        if (! empty($settings['api_token'])) {
-            $headers['authorization'] = 'Bearer ' . $settings['api_token'];
+        if ($api_token !== '') {
+            $headers['authorization'] = 'Bearer ' . $api_token;
         }
 
         // origin header requerido por la API
@@ -439,7 +440,7 @@ class Ileben_Api_Client
 
         return array(
             'api_endpoint' => esc_url_raw(trim((string) ($settings['api_endpoint'] ?? ''))),
-            'api_token' => trim((string) ($settings['api_token'] ?? '')),
+            'api_token' => $this->normalize_api_token((string) ($settings['api_token'] ?? '')),
             'proyecto_id' => sanitize_text_field((string) ($settings['proyecto_id'] ?? '')),
             'cotiza_url' => esc_url_raw(trim((string) ($settings['cotiza_url'] ?? ''))),
             'timeout' => min(120, max(5, (int) ($settings['timeout'] ?? 15))),
@@ -449,6 +450,21 @@ class Ileben_Api_Client
             'show_cover_image' => ! isset($settings['show_cover_image']) || ! empty($settings['show_cover_image']) ? 1 : 0,
             'use_api_favicon' => ! isset($settings['use_api_favicon']) || ! empty($settings['use_api_favicon']) ? 1 : 0,
         );
+    }
+
+    private function normalize_api_token($token)
+    {
+        $token = sanitize_text_field(trim((string) $token));
+        if ($token === '') {
+            return '';
+        }
+
+        // Evita enviar "Bearer Bearer ..." cuando pegan el prefijo completo.
+        if (stripos($token, 'bearer ') === 0) {
+            $token = trim(substr($token, 7));
+        }
+
+        return $token;
     }
 
     private function get_cron_interval_hours($settings)

@@ -623,6 +623,7 @@ if (typeof jQuery !== 'undefined') {
         $this->guard_permission();
         $settings = $this->api_client->get_settings();
         $proyecto_id_empty = empty($settings['proyecto_id']);
+        $has_saved_token = ! empty($settings['api_token']);
 
         ob_start();
     ?>
@@ -646,11 +647,15 @@ if (typeof jQuery !== 'undefined') {
 
                             <div class="col-md-4">
                                 <label class="form-label">Proyecto</label>
-                                <select class="form-select" name="proyecto_id" id="ileben_proyecto_select">
-                                    <option value="">-- Cargando proyectos --</option>
+                                <select class="form-select" name="proyecto_id" id="ileben_proyecto_select" <?php disabled($has_saved_token, false, true); ?>>
+                                    <?php if (! $has_saved_token): ?>
+                                        <option value="">-- Guarda la configuración con token para cargar proyectos --</option>
+                                    <?php else: ?>
+                                        <option value="">-- Cargando proyectos --</option>
+                                    <?php endif; ?>
                                 </select>
                                 <small class="text-muted d-block mt-2">
-                                    <a href="#" class="link-secondary" id="ileben_reload_proyectos">Recargar proyectos</a>
+                                    <a href="#" class="link-secondary <?php echo ! $has_saved_token ? 'disabled' : ''; ?>" id="ileben_reload_proyectos" aria-disabled="<?php echo $has_saved_token ? 'false' : 'true'; ?>">Recargar proyectos</a>
                                 </small>
                             </div>
 
@@ -731,6 +736,7 @@ if (typeof jQuery !== 'undefined') {
                             const syncForm = document.getElementById('ileben_sync_form');
                             const syncBtn = document.getElementById('ileben_sync_btn');
                             const syncProyectoInput = document.getElementById('ileben_sync_proyecto_id');
+                            const hasSavedToken = <?php echo $has_saved_token ? 'true' : 'false'; ?>;
 
                             function selectedProyectoId() {
                                 return proyectoSelect ? String(proyectoSelect.value || '').trim() : '';
@@ -741,9 +747,16 @@ if (typeof jQuery !== 'undefined') {
                             }
 
                             function loadProyectos() {
+                                if (!hasSavedToken) {
+                                    proyectoSelect.innerHTML = '<option value="">-- Guarda la configuración con token para cargar proyectos --</option>';
+                                    proyectoSelect.disabled = true;
+                                    return;
+                                }
+
                                 const endpoint = endpointInput.value.trim();
                                 if (!endpoint) {
                                     proyectoSelect.innerHTML = '<option value="">-- Configura el endpoint API primero --</option>';
+                                    proyectoSelect.disabled = true;
                                     return;
                                 }
 
@@ -795,18 +808,19 @@ if (typeof jQuery !== 'undefined') {
                                     });
                             }
 
-                            // Cargar proyectos al cambiar endpoint
-                            endpointInput.addEventListener('change', loadProyectos);
-                            endpointInput.addEventListener('blur', loadProyectos);
-
-                            // Cargar proyectos al inicial si hay endpoint
-                            if (endpointInput.value.trim()) {
+                            // Cargar proyectos solo con token guardado y endpoint guardado.
+                            if (hasSavedToken && endpointInput.value.trim()) {
                                 setTimeout(loadProyectos, 100);
                             }
 
-                            // BotÃ³n recargar
+                            // Botón recargar
                             reloadBtn.addEventListener('click', function(e) {
                                 e.preventDefault();
+
+                                if (!hasSavedToken) {
+                                    return;
+                                }
+
                                 loadProyectos();
                             });
 
