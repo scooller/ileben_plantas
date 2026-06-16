@@ -388,16 +388,17 @@
                 piso: piso
             };
 
+            var showAll = mostrarTodasCheckbox && mostrarTodasCheckbox.checked;
+
             var runFiltering = function () {
-                //add class to ileben-main-grid to reduce opacity and add loader
-                
                 visibleItems = allItems.filter(function (item) {
+                    var estadoOk = showAll || String(item.estado || '').toLowerCase() === 'disponible';
                     var tipologiaOk = !tipologia.length || tipologia.indexOf(item.tipologia) !== -1;
                     var tipoProductoOk = !tipoProducto.length || tipoProducto.indexOf(item.tipo_producto) !== -1;
                     var plantaCode = item.product_code || item.planta_label;
                     var plantaOk = !planta.length || planta.indexOf(plantaCode) !== -1;
                     var pisoOk = !piso.length || piso.indexOf(String(item.piso || '')) !== -1;
-                    return tipologiaOk && tipoProductoOk && plantaOk && pisoOk;
+                    return estadoOk && tipologiaOk && tipoProductoOk && plantaOk && pisoOk;
                 });
 
                 renderCarousel(visibleItems);
