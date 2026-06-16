@@ -314,6 +314,17 @@
     color: var(--leben-brand-color, #eb0029);
 }
 
+.ileben-showcase .btn-cotizar:disabled, .ileben-showcase .btn-cotizar[disabled], .ileben-showcase .btn-cotizar.disabled {
+    pointer-events: none;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+[disabled] {
+  pointer-events: none; /* Prevents click/hover events */
+  user-select: none;    /* Prevents text selection */
+  cursor: not-allowed;
+}
+
 @media (max-width: 960px) {
     .ileben-showcase {
         padding: 1.25rem;

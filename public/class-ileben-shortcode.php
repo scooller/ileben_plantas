@@ -288,8 +288,12 @@ class Ileben_Api_Shortcode
             'ileben_plantas'
         );
 
+        $estado_param = sanitize_text_field($_GET['ip_estado'] ?? '');
+        $mostrar_todas = $estado_param === '' ? false : ($estado_param === 'todas');
+        $estado_filter = $mostrar_todas ? '' : ($estado_param !== '' ? $estado_param : 'disponible');
+
         $filters = array(
-            'estado' => sanitize_text_field($_GET['ip_estado'] ?? ''),
+            'estado' => $estado_filter,
             'tipologia' => sanitize_text_field($_GET['ip_tipologia'] ?? ''),
             'tipo_producto' => sanitize_text_field($_GET['ip_tipo_producto'] ?? ''),
             'planta_label' => sanitize_text_field($_GET['ip_planta'] ?? ''),
@@ -309,7 +313,6 @@ class Ileben_Api_Shortcode
 
         // Build filter options from the full set, not only the paginated current items.
         $option_filters = array(
-            'estado' => $filters['estado'] ?? '',
             'orderby' => $filters['orderby'] ?? '',
             'tipo_producto' => $filters['tipo_producto'] ?? '',
         );
@@ -366,8 +369,7 @@ class Ileben_Api_Shortcode
             data-ajax-url="<?php echo esc_url(admin_url('admin-ajax.php')); ?>"
             data-ajax-nonce="<?php echo esc_attr(wp_create_nonce('ileben_api_filter_plantas')); ?>"
             data-ajax-per-page="100"
-            data-orderby="<?php echo esc_attr((string) ($filters['orderby'] ?? '')); ?>"
-            data-estado="<?php echo esc_attr((string) ($filters['estado'] ?? '')); ?>">
+            data-orderby="<?php echo esc_attr((string) ($filters['orderby'] ?? '')); ?>">
             <div class="ileben-filter-loader" aria-hidden="true">
                 <i class="fa-solid fa-spinner fa-spin-pulse"></i>
                 <span>Filtrando...</span>
@@ -403,6 +405,13 @@ class Ileben_Api_Shortcode
                                     <option value="<?php echo esc_attr($planta); ?>"><?php echo esc_html($planta); ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <!-- check plantas activas o todas -->
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="<?php echo esc_attr($instance); ?>-mostrar-todas" data-filter="mostrar_todas" <?php checked($mostrar_todas); ?>>
+                                <label class="form-check-label" for="<?php echo esc_attr($instance); ?>-mostrar-todas">
+                                    Mostrar todas las plantas
+                                </label>
+                            </div>
                         </div>
                     </div>
                     <div class="d-flex flex-wrap justify-content-end gap-3 mb-4">
@@ -523,6 +532,7 @@ class Ileben_Api_Shortcode
             'id' => (int) ($item['id'] ?? 0),
             'name' => (string) ($item['nombre'] ?? ''),
             'nombre' => (string) ($item['nombre'] ?? ''),
+            'estado' => (string) ($item['estado'] ?? ''),
             'descripcion' => (string) ($item['descripcion'] ?? ''),
             'tipologia' => (string) ($item['tipologia'] ?? ''),
             'tipo_producto' => (string) ($item['tipo_producto'] ?? ''),

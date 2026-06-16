@@ -54,6 +54,7 @@
         var tipoProductoSelect = wrapper.querySelector('[data-filter="tipo_producto"]');
         var plantaSelect = wrapper.querySelector('[data-filter="planta_label"]');
         var pisoSelect = wrapper.querySelector('[data-filter="piso"]');
+        var mostrarTodasCheckbox = wrapper.querySelector('[data-filter="mostrar_todas"]');
         var filterBtn = wrapper.querySelector('[data-action="filter"]');
         var resetBtn = wrapper.querySelector('[data-action="reset"]');
         var shownPlantsNode = wrapper.querySelector('.show_plantas');
@@ -61,7 +62,6 @@
         var ajaxNonce = wrapper.getAttribute('data-ajax-nonce') || '';
         var ajaxPerPage = Number(wrapper.getAttribute('data-ajax-per-page') || 5000);
         var defaultOrderBy = wrapper.getAttribute('data-orderby') || '';
-        var defaultEstado = wrapper.getAttribute('data-estado') || '';
         var detailName = wrapper.querySelector('[data-field="name"], [data-field="nombre"]');
         var detailDesc = wrapper.querySelector('[data-field="descripcion"]');
         var lightbox = wrapper.querySelector('.ileben-lightbox');
@@ -75,6 +75,7 @@
             orientacion: wrapper.querySelector('[data-field="orientacion"]'),
             superficie_total: wrapper.querySelector('[data-field="superficie_total"]'),
             precio_base: wrapper.querySelector('[data-field="precio_base"]'),
+            estado: wrapper.querySelector('[data-field="estado"]')
             // precio_lista: wrapper.querySelector('[data-field="precio_lista"]')
         };
         var brochureBtn = wrapper.querySelector('[data-field="brochure_btn"]');
@@ -217,7 +218,7 @@
             body.append('action', 'ileben_api_filter_plantas');
             body.append('nonce', ajaxNonce);
             body.append('orderby', defaultOrderBy || '');
-            body.append('estado', defaultEstado || '');
+            body.append('estado', mostrarTodasCheckbox && mostrarTodasCheckbox.checked ? '' : 'disponible');
             body.append('per_page', String(ajaxPerPage || 100));
             body.append('page', String(Math.max(1, Number(page) || 1)));
 
@@ -283,11 +284,20 @@
 
             if (cotizarBtn) {
                 if (item.cotizacion_url) {
-                    cotizarBtn.style.display = '';
-                    cotizarBtn.setAttribute('href', normalizeSecureUrl(item.cotizacion_url));
+                    //si estado es disponible, mostrar botón cotizar, si no mostrar botón de contacto genérico desabilitado
+                    cotizarBtn.removeAttribute('disabled');
+                    cotizarBtn.classList.remove('disabled');
+                    if (item.estado && String(item.estado).toLowerCase() === 'disponible') {
+                        cotizarBtn.style.display = '';
+                        cotizarBtn.setAttribute('href', normalizeSecureUrl(item.cotizacion_url));
+                    } else {
+                        cotizarBtn.setAttribute('disabled', 'disabled');
+                        cotizarBtn.setAttribute('href', '');
+                        cotizarBtn.classList.add('disabled');
+                    }
                 } else {
                     cotizarBtn.style.display = 'none';
-                    cotizarBtn.setAttribute('href', '#');
+                    cotizarBtn.setAttribute('href', '');
                 }
             }
 
@@ -546,6 +556,12 @@
             initSelect2(pisoSelect);
         }
 
+        if (mostrarTodasCheckbox) {
+            mostrarTodasCheckbox.addEventListener('change', function () {
+                applyFilters(true, true);
+            });
+        }
+
         if (filterBtn) {
             filterBtn.addEventListener('click', function (event) {
                 event.preventDefault();
@@ -560,6 +576,9 @@
                 clearSelect(tipoProductoSelect);
                 clearSelect(plantaSelect);
                 clearSelect(pisoSelect);
+                if (mostrarTodasCheckbox) {
+                    mostrarTodasCheckbox.checked = false;
+                }
                 applyFilters(true, true);
             });
         }
