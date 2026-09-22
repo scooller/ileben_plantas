@@ -31,6 +31,10 @@ class Ileben_Api_Admin
         add_action('admin_post_ileben_api_save_settings', array($this, 'handle_save_settings'));
         add_action('admin_post_ileben_api_toggle_favicon', array($this, 'handle_toggle_favicon'));
 
+        add_action('wp_ajax_ileben_api_bulk_update_contact_channel', array($this, 'ajax_bulk_update_contact_channel'));
+        add_action('wp_ajax_ileben_api_batch_resync_contacts', array($this, 'ajax_batch_resync_contacts'));
+        add_action('wp_ajax_ileben_api_get_filtered_contact_ids', array($this, 'ajax_get_filtered_contact_ids'));
+
         add_action('ileben_api_cron_sync', array($this, 'run_sync'));
     }
 
@@ -142,10 +146,17 @@ class Ileben_Api_Admin
         wp_enqueue_script(
             'ileben-api-admin',
             ILEBEN_API_URL . 'assets/js/admin.js',
-            array('jquery'),
+            array('jquery', 'ileben-api-bootstrap'),
             ILEBEN_API_VERSION,
             true
         );
+
+        wp_localize_script('ileben-api-admin', 'ileben_admin_vars', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce_bulk_channel' => wp_create_nonce('ileben_api_bulk_update_channel'),
+            'nonce_batch_resync' => wp_create_nonce('ileben_api_batch_resync'),
+            'nonce_get_ids' => wp_create_nonce('ileben_api_get_contact_ids'),
+        ));
 
         // Inline script para verificar que los assets se cargan y vincular botones
         wp_add_inline_script('ileben-api-admin', "
@@ -1001,7 +1012,7 @@ if (typeof jQuery !== 'undefined') {
 
         ob_start();
     ?>
-        <div class="wrap ileben-admin">
+        <div class="wrap ileben-admin" id="ilebenContactSyncWrap" data-status="<?php echo esc_attr($filters['status']); ?>" data-channel="<?php echo esc_attr($filters['channel']); ?>" data-email="<?php echo esc_attr($filters['email']); ?>" data-date-from="<?php echo esc_attr($filters['date_from']); ?>" data-date-to="<?php echo esc_attr($filters['date_to']); ?>" data-total="<?php echo (int) $result['total']; ?>" data-page-items="<?php echo count($result['items']); ?>">
             <h1 class="mb-3">Sync Contactos API</h1>
             <?php $this->render_flash(); ?>
 
@@ -1073,11 +1084,44 @@ if (typeof jQuery !== 'undefined') {
                 </div>
             </div>
 
+            <!-- Barra de Acciones Masivas -->
+            <div id="ilebenBulkToolbar" class="card mb-3 d-none border-primary bg-light shadow-sm">
+                <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-primary fs-6 px-3 py-2" id="bulkSelectedCount">0 seleccionados</span>
+                        <button type="button" class="btn btn-sm btn-link text-decoration-none text-muted" id="btnDeselectAll">
+                            <i class="fa fa-times me-1"></i>Deseleccionar
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="btnOpenBulkChannelModal">
+                            <i class="fa fa-tag me-1"></i> Cambiar Canal
+                        </button>
+                        <button type="button" class="btn btn-sm btn-success" id="btnStartBulkResync">
+                            <i class="fa fa-sync me-1"></i> Resincronizar Seleccionados
+                        </button>
+                    </div>
+                </div>
+                <div id="bulkSelectAllFilteredBanner" class="card-footer py-2 px-3 bg-primary-subtle text-primary small d-none text-center">
+                    <span id="bulkBannerText">Has seleccionado los <strong id="bulkPageCount"><?php echo count($result['items']); ?></strong> contactos de esta página.</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-1 fw-bold text-decoration-underline text-primary" id="btnSelectAllFiltered">
+                        Seleccionar los <span id="bulkTotalFilteredCount"><?php echo (int) $result['total']; ?></span> contactos que coinciden con los filtros actuales
+                    </button>
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-1 fw-bold text-decoration-underline text-secondary d-none" id="btnClearAllFiltered">
+                        Limpiar selección global
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabla contactos -->
             <div class="card">
                 <div class="table-responsive">
-                    <table class="table table-striped table-hover mb-0">
+                    <table class="table table-striped table-hover mb-0" id="contact-table">
                         <thead>
                             <tr>
+                                <th style="width: 38px;" class="text-center">
+                                    <input class="form-check-input" type="checkbox" id="selectAllContacts" title="Seleccionar todos en esta página" />
+                                </th>
                                 <th>ID</th>
                                 <th>Fecha</th>
                                 <th>Formulario</th>
@@ -1092,7 +1136,7 @@ if (typeof jQuery !== 'undefined') {
                         <tbody>
                             <?php if (empty($result['items'])): ?>
                                 <tr>
-                                    <td colspan="9" class="text-center py-4">No hay envios registrados.</td>
+                                    <td colspan="10" class="text-center py-4">No hay envios registrados.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($result['items'] as $item): ?>
@@ -1101,14 +1145,17 @@ if (typeof jQuery !== 'undefined') {
                                     $status_label = $states[$status_key] ?? $status_key;
                                     $badge_class = $status_key === 'sent' ? 'text-bg-success' : ($status_key === 'rate_limited' ? 'text-bg-warning' : 'text-bg-danger');
                                     ?>
-                                    <tr>
+                                    <tr id="contact-row-<?php echo (int) ($item['id'] ?? 0); ?>">
+                                        <td class="text-center">
+                                            <input class="form-check-input ileben-contact-check" type="checkbox" value="<?php echo (int) ($item['id'] ?? 0); ?>" data-channel="<?php echo esc_attr((string) ($item['channel'] ?? '')); ?>" />
+                                        </td>
                                         <td><?php echo (int) ($item['id'] ?? 0); ?></td>
                                         <td><?php echo esc_html((string) ($item['created_at'] ?? '')); ?></td>
                                         <td>
                                             <div>#<?php echo (int) ($item['form_id'] ?? 0); ?></div>
                                             <small class="text-muted"><?php echo esc_html((string) ($item['form_title'] ?? '')); ?></small>
                                         </td>
-                                        <td><?php echo esc_html((string) ($item['channel'] ?? '')); ?></td>
+                                        <td class="contact-channel-cell"><?php echo esc_html((string) ($item['channel'] ?? '')); ?></td>
                                         <td>
                                             <div><?php echo esc_html((string) ($item['contact_name'] ?? '')); ?></div>
                                             <small class="text-muted"><?php echo esc_html((string) ($item['contact_email'] ?? '')); ?></small>
@@ -1123,6 +1170,7 @@ if (typeof jQuery !== 'undefined') {
                                                     data-contact-id="<?php echo (int) ($item['id'] ?? 0); ?>"
                                                     data-contact-name="<?php echo esc_attr((string) ($item['contact_name'] ?? '')); ?>"
                                                     data-contact-email="<?php echo esc_attr((string) ($item['contact_email'] ?? '')); ?>"
+                                                    data-contact-channel="<?php echo esc_attr((string) ($item['channel'] ?? '')); ?>"
                                                     data-payload='<?php echo esc_attr((string) ($item['payload_json'] ?? '{}')); ?>'
                                                     type="button">
                                                     Editar y reintentar
@@ -1161,7 +1209,7 @@ if (typeof jQuery !== 'undefined') {
                                         }
                                         ?>
                                         <tr class="bg-light">
-                                            <td colspan="9" class="small py-3">
+                                            <td colspan="10" class="small py-3">
                                                 <strong>Detalle:</strong>
                                                 <div class="mt-2">
                                                     <?php echo $error_html; ?>
@@ -1179,7 +1227,7 @@ if (typeof jQuery !== 'undefined') {
             <?php $this->render_pagination($result['page'], $result['pages']); ?>
         </div>
 
-        <!-- Modal para editar y reintentar contacto -->
+        <!-- Modal para editar y reintentar contacto individual -->
         <div class="modal fade" id="ilebenContactEditModal" tabindex="-1">
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
@@ -1193,6 +1241,13 @@ if (typeof jQuery !== 'undefined') {
                         <?php wp_nonce_field('ileben_api_retry_contact_sync'); ?>
 
                         <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Canal de contacto</label>
+                                <input type="text" class="form-control" name="channel" id="editContactChannel" placeholder="ej: sale, rent, info" required />
+                                <div class="form-text">Identificador del canal requerido por el API.</div>
+                            </div>
+                            <hr class="my-3" />
+                            <h6 class="fw-bold mb-3">Campos del contacto</h6>
                             <div id="editContactFields"></div>
                         </div>
                         <div class="modal-footer">
@@ -1203,6 +1258,105 @@ if (typeof jQuery !== 'undefined') {
                 </div>
             </div>
         </div>
+
+        <!-- Modal para cambio masivo de canal -->
+        <div class="modal fade" id="ilebenBulkChannelModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fa fa-tag me-2 text-primary"></i>Cambiar Canal de Contacto</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <form id="ilebenBulkChannelForm">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold" for="bulkNewChannel">Nuevo Canal de Contacto</label>
+                                <input type="text" class="form-control" id="bulkNewChannel" placeholder="ej: sale, rent, info" required />
+                                <div class="form-text">Este canal se asignará a todos los contactos seleccionados.</div>
+                            </div>
+
+                            <div class="mb-3 p-3 bg-light rounded border">
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="bulkResyncAfterUpdate" checked />
+                                    <label class="form-check-label fw-bold" for="bulkResyncAfterUpdate">
+                                        Resincronizar con la API inmediatamente
+                                    </label>
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    Si está activo, tras guardar el nuevo canal se iniciará automáticamente el reenvío de estos contactos a la API Leben.
+                                </div>
+                            </div>
+
+                            <div id="bulkTargetScopeNotice" class="alert alert-info py-2 px-3 small mb-0">
+                                Se actualizarán <strong id="bulkModalCount">0</strong> contacto(s) seleccionados.
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary" id="btnConfirmBulkChannel">Guardar cambios</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Progreso de Sincronización Masiva -->
+        <div class="modal fade" id="ilebenBulkSyncProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fa fa-sync fa-spin me-2 text-primary" id="syncSpinnerIcon"></i>Resincronización Masiva</h5>
+                        <button type="button" class="btn-close d-none" id="btnCloseProgressModal" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold small" id="syncProgressStatusText">Iniciando proceso...</span>
+                                <span class="fw-bold small text-primary" id="syncProgressPercent">0%</span>
+                            </div>
+                            <div class="progress" style="height: 22px;">
+                                <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="row g-2 text-center mb-3">
+                            <div class="col-4">
+                                <div class="p-2 border rounded bg-light">
+                                    <small class="text-muted d-block">Enviados OK</small>
+                                    <strong class="text-success fs-5" id="syncCountSuccess">0</strong>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 border rounded bg-light">
+                                    <small class="text-muted d-block">Validación</small>
+                                    <strong class="text-warning fs-5" id="syncCountValidation">0</strong>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 border rounded bg-light">
+                                    <small class="text-muted d-block">Fallidos</small>
+                                    <strong class="text-danger fs-5" id="syncCountFailed">0</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card bg-light">
+                            <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center bg-white border-bottom">
+                                <small class="fw-bold text-muted">Registro de actividad</small>
+                                <small class="text-muted" id="syncQueueStatus">0 / 0 procesados</small>
+                            </div>
+                            <div class="card-body p-2 bg-dark text-light rounded-bottom" id="syncLogContainer" style="max-height: 220px; overflow-y: auto; font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.8rem; line-height: 1.4;">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="btnCancelSync">Detener</button>
+                        <button type="button" class="btn btn-primary d-none" id="btnFinishReload" onclick="window.location.reload();">Finalizar y Actualizar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
 
         <script>
             // Diagnóstico inmediato
@@ -1502,20 +1656,16 @@ if (typeof jQuery !== 'undefined') {
         $this->redirect_with_flash('ileben-api-sync', 'success', $message);
     }
 
-    public function handle_retry_contact_sync()
+    public function process_contact_retry($id, $override_channel = null, $override_fields = null)
     {
-        $this->guard_permission();
-
-        $id = (int) ($_POST['id'] ?? 0);
-        check_admin_referer('ileben_api_retry_contact_sync');
-
+        $id = (int) $id;
         if (! $id) {
-            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'ID de envio invalido.');
+            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'ID de envio invalido.');
         }
 
         $log_item = $this->repository->find_contact_sync_log($id);
         if (! is_array($log_item) || empty($log_item)) {
-            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'No se encontro el envio a reintentar.');
+            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'No se encontro el envio a reintentar.');
         }
 
         $payload = json_decode((string) ($log_item['payload_json'] ?? '{}'), true);
@@ -1524,23 +1674,25 @@ if (typeof jQuery !== 'undefined') {
         }
 
         $channel = sanitize_text_field((string) ($payload['channel'] ?? $log_item['channel'] ?? ''));
-        $fields = isset($payload['fields']) && is_array($payload['fields']) ? $payload['fields'] : array();
-        $turnstile_token = sanitize_text_field((string) ($payload['turnstile_token'] ?? ''));
+        if ($override_channel !== null && trim((string) $override_channel) !== '') {
+            $channel = sanitize_text_field((string) $override_channel);
+        }
 
-        // Procesar campos editados del modal (field_* POST vars)
-        foreach ($_POST as $post_key => $post_value) {
-            if (strpos($post_key, 'field_') === 0) {
-                $field_name = substr($post_key, 6); // Quitar prefijo "field_"
-                $field_name = sanitize_key($field_name);
-                if ($field_name !== '') {
-                    $fields[$field_name] = sanitize_text_field((string) $post_value);
+        $fields = isset($payload['fields']) && is_array($payload['fields']) ? $payload['fields'] : array();
+        if (is_array($override_fields) && ! empty($override_fields)) {
+            foreach ($override_fields as $fk => $fv) {
+                $clean_key = sanitize_key((string) $fk);
+                if ($clean_key !== '') {
+                    $fields[$clean_key] = sanitize_text_field((string) $fv);
                 }
             }
         }
 
+        $turnstile_token = sanitize_text_field((string) ($payload['turnstile_token'] ?? ''));
+
         if ($channel === '' || empty($fields)) {
             error_log('[ileben-api] Retry ' . $id . ': Payload insuficiente. Channel: ' . $channel . ', Fields: ' . wp_json_encode($fields));
-            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El payload guardado no tiene datos suficientes para reintentar.');
+            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'El payload guardado no tiene datos suficientes para reintentar.');
         }
 
         error_log('[ileben-api] Retry ' . $id . ': Reenviando con ' . count($fields) . ' campos. Channel: ' . $channel);
@@ -1558,8 +1710,14 @@ if (typeof jQuery !== 'undefined') {
 
         $error_message = $this->build_error_message_from_result($result);
 
+        // Guardar payload_json y channel actualizado para persistir cambios
+        $payload['channel'] = $channel;
+        $payload['fields'] = $fields;
+
         $this->repository->save_contact_sync_log(array(
             'id' => $id,
+            'channel' => $channel,
+            'payload_json' => wp_json_encode($payload),
             'status' => $status,
             'response_code' => (int) ($result['status_code'] ?? 0),
             'response_body' => (string) ($result['raw_body'] ?? ''),
@@ -1569,12 +1727,145 @@ if (typeof jQuery !== 'undefined') {
 
         error_log('[ileben-api] Retry ' . $id . ': Status=' . $status . ', Code=' . (int) ($result['status_code'] ?? 0));
 
-        if ($status === 'sent') {
+        return array(
+            'success' => $status === 'sent',
+            'status' => $status,
+            'status_code' => (int) ($result['status_code'] ?? 0),
+            'message' => $status === 'sent' ? 'Reintento enviado correctamente.' : sanitize_text_field((string) ($result['message'] ?? 'Error desconocido.')),
+            'error_message' => $error_message,
+        );
+    }
+
+    public function handle_retry_contact_sync()
+    {
+        $this->guard_permission();
+
+        $id = (int) ($_POST['id'] ?? 0);
+        check_admin_referer('ileben_api_retry_contact_sync');
+
+        if (! $id) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'ID de envio invalido.');
+        }
+
+        $override_channel = isset($_POST['channel']) ? sanitize_text_field(wp_unslash($_POST['channel'])) : null;
+
+        // Procesar campos editados del modal (field_* POST vars)
+        $override_fields = array();
+        foreach ($_POST as $post_key => $post_value) {
+            if (strpos($post_key, 'field_') === 0) {
+                $field_name = substr($post_key, 6); // Quitar prefijo "field_"
+                $field_name = sanitize_key($field_name);
+                if ($field_name !== '') {
+                    $override_fields[$field_name] = sanitize_text_field((string) $post_value);
+                }
+            }
+        }
+
+        $res = $this->process_contact_retry($id, $override_channel, $override_fields);
+
+        if (! empty($res['success'])) {
             $this->redirect_with_flash('ileben-api-contact-sync', 'success', 'Reintento enviado correctamente.');
         }
 
-        $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El reintento no pudo completarse: ' . sanitize_text_field((string) ($result['message'] ?? 'Error desconocido.')));
+        $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El reintento no pudo completarse: ' . ($res['message'] ?? 'Error desconocido.'));
     }
+
+    public function ajax_bulk_update_contact_channel()
+    {
+        check_ajax_referer('ileben_api_bulk_update_channel', 'nonce');
+        $this->guard_permission();
+
+        $channel = isset($_POST['channel']) ? sanitize_text_field(wp_unslash($_POST['channel'])) : '';
+        if ($channel === '') {
+            wp_send_json_error(array('message' => 'El canal no puede estar vacío.'), 400);
+        }
+
+        $apply_all = ! empty($_POST['apply_all']);
+        $ids = array();
+
+        if ($apply_all) {
+            $filters = array(
+                'status' => sanitize_text_field((string) ($_POST['status'] ?? '')),
+                'channel' => sanitize_text_field((string) ($_POST['current_channel'] ?? '')),
+                'email' => sanitize_text_field((string) ($_POST['email'] ?? '')),
+                'date_from' => sanitize_text_field((string) ($_POST['date_from'] ?? '')),
+                'date_to' => sanitize_text_field((string) ($_POST['date_to'] ?? '')),
+            );
+            $ids = $this->repository->get_contact_ids_by_filters($filters);
+        } else {
+            $raw_ids = isset($_POST['ids']) ? (array) $_POST['ids'] : array();
+            $ids = array_filter(array_map('intval', $raw_ids), function ($id) {
+                return $id > 0;
+            });
+        }
+
+        if (empty($ids)) {
+            wp_send_json_error(array('message' => 'No se seleccionó ningún contacto válido.'), 400);
+        }
+
+        $updated = $this->repository->bulk_update_contact_channel($ids, $channel);
+
+        wp_send_json_success(array(
+            'message' => sprintf('Se actualizó el canal a "%s" en %d contacto(s).', $channel, $updated),
+            'updated_count' => $updated,
+            'ids' => array_values($ids),
+            'channel' => $channel,
+        ));
+    }
+
+    public function ajax_batch_resync_contacts()
+    {
+        check_ajax_referer('ileben_api_batch_resync', 'nonce');
+        $this->guard_permission();
+
+        $raw_ids = isset($_POST['ids']) ? (array) $_POST['ids'] : array();
+        $ids = array_filter(array_map('intval', $raw_ids), function ($id) {
+            return $id > 0;
+        });
+
+        if (empty($ids)) {
+            wp_send_json_error(array('message' => 'No se enviaron IDs válidos.'), 400);
+        }
+
+        $results = array();
+        foreach ($ids as $id) {
+            $res = $this->process_contact_retry($id);
+            $results[] = array(
+                'id' => $id,
+                'success' => ! empty($res['success']),
+                'status' => $res['status'] ?? 'failed',
+                'status_code' => $res['status_code'] ?? 0,
+                'message' => $res['message'] ?? '',
+                'error_message' => $res['error_message'] ?? '',
+            );
+        }
+
+        wp_send_json_success(array(
+            'results' => $results,
+        ));
+    }
+
+    public function ajax_get_filtered_contact_ids()
+    {
+        check_ajax_referer('ileben_api_get_contact_ids', 'nonce');
+        $this->guard_permission();
+
+        $filters = array(
+            'status' => sanitize_text_field((string) ($_POST['status'] ?? '')),
+            'channel' => sanitize_text_field((string) ($_POST['channel'] ?? '')),
+            'email' => sanitize_text_field((string) ($_POST['email'] ?? '')),
+            'date_from' => sanitize_text_field((string) ($_POST['date_from'] ?? '')),
+            'date_to' => sanitize_text_field((string) ($_POST['date_to'] ?? '')),
+        );
+
+        $ids = $this->repository->get_contact_ids_by_filters($filters);
+
+        wp_send_json_success(array(
+            'ids' => array_values($ids),
+            'total' => count($ids),
+        ));
+    }
+
 
     private function build_error_message_from_result($result)
     {

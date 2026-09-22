@@ -389,6 +389,100 @@ class Ileben_Api_Repository
         );
     }
 
+    public function get_contact_ids_by_filters($filters = array())
+    {
+        global $wpdb;
+
+        $where = array('1=1');
+        $params = array();
+
+        if (($filters['status'] ?? '') !== '') {
+            $where[] = 'status = %s';
+            $params[] = sanitize_text_field((string) $filters['status']);
+        }
+
+        if (($filters['channel'] ?? '') !== '') {
+            $where[] = 'channel = %s';
+            $params[] = sanitize_text_field((string) $filters['channel']);
+        }
+
+        if (($filters['email'] ?? '') !== '') {
+            $where[] = 'contact_email LIKE %s';
+            $params[] = '%' . $wpdb->esc_like((string) $filters['email']) . '%';
+        }
+
+        if (($filters['date_from'] ?? '') !== '') {
+            $where[] = 'DATE(created_at) >= %s';
+            $params[] = sanitize_text_field((string) $filters['date_from']);
+        }
+
+        if (($filters['date_to'] ?? '') !== '') {
+            $where[] = 'DATE(created_at) <= %s';
+            $params[] = sanitize_text_field((string) $filters['date_to']);
+        }
+
+        $where_sql = implode(' AND ', $where);
+        $sql = "SELECT id FROM {$this->contact_sync_table_name} WHERE {$where_sql} ORDER BY created_at DESC";
+        $prepared_sql = $params ? $wpdb->prepare($sql, $params) : $sql;
+        $results = $wpdb->get_col($prepared_sql);
+
+        return array_map('intval', (array) $results);
+    }
+
+    public function bulk_update_contact_channel(array $ids, $new_channel)
+    {
+        global $wpdb;
+
+        $channel = sanitize_text_field((string) $new_channel);
+        if ($channel === '') {
+            return 0;
+        }
+
+        $clean_ids = array_filter(array_map('intval', $ids), function ($id) {
+            return $id > 0;
+        });
+
+        if (empty($clean_ids)) {
+            return 0;
+        }
+
+        $now = current_time('mysql');
+        $updated_count = 0;
+
+        $placeholders = implode(',', array_fill(0, count($clean_ids), '%d'));
+        $sql = $wpdb->prepare("SELECT id, payload_json FROM {$this->contact_sync_table_name} WHERE id IN ({$placeholders})", $clean_ids);
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true);
+            if (! is_array($payload)) {
+                $payload = array();
+            }
+            $payload['channel'] = $channel;
+            $payload_json = wp_json_encode($payload);
+
+            $result = $wpdb->update(
+                $this->contact_sync_table_name,
+                array(
+                    'channel' => $channel,
+                    'payload_json' => $payload_json,
+                    'updated_at' => $now,
+                ),
+                array('id' => $id),
+                array('%s', '%s', '%s'),
+                array('%d')
+            );
+
+            if ($result !== false) {
+                $updated_count++;
+            }
+        }
+
+        return $updated_count;
+    }
+
+
     public function get_contact_sync_stats()
     {
         global $wpdb;

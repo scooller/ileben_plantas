@@ -133,3 +133,26 @@
         text-align: left;
     }
 }
+
+/* Bulk Toolbar & Contact Sync Table */
+#ilebenBulkToolbar {
+    position: sticky;
+    top: 32px;
+    z-index: 100;
+    transition: all 0.2s ease-in-out;
+}
+
+.ileben-admin .table .form-check-input {
+    margin: 0;
+    cursor: pointer;
+    width: 1.15rem;
+    height: 1.15rem;
+}
+
+.ileben-admin .table .contact-channel-cell {
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875rem;
+    color: #0d6efd;
+    font-weight: 500;
+}
+
