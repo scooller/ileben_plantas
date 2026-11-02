@@ -497,7 +497,7 @@ class Ileben_Api_Shortcode
         $fallback_image = $this->normalize_frontend_url($fallback_image);
 
         if ($cover_image === '') {
-            $cover_image = $fallback_image;
+            $cover_image = $interior_image !== '' ? $interior_image : $fallback_image;
         }
 
         if ($interior_image === '') {

@@ -509,8 +509,19 @@ class Ileben_Api_Repository
     {
         $states = array_keys($this->get_states());
 
-        $foto_portada = esc_url_raw((string) ($data['foto_portada'] ?? ''));
-        $foto_interior = esc_url_raw((string) ($data['foto_interior'] ?? ''));
+        $foto_portada = esc_url_raw((string) (
+            $data['foto_portada']
+            ?? $data['cover_image_url']
+            ?? $data['imageUrl']
+            ?? ''
+        ));
+        $foto_interior = esc_url_raw((string) (
+            $data['foto_interior']
+            ?? $data['salesforce_interior_image_url']
+            ?? $data['interior_image_url']
+            ?? $data['detailImageUrl']
+            ?? ''
+        ));
 
         if ($foto_portada === '' || $foto_interior === '') {
             $image_source = $data['foto'] ?? ($data['fotos'] ?? '');

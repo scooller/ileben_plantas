@@ -2,7 +2,7 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
-Version actual: 0.2.4
+Version actual: 0.2.5
 
 ## Novedades recientes
 

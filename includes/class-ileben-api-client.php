@@ -512,12 +512,13 @@ class Ileben_Api_Client
         $cover_image = $this->extract_image_url(
             $item,
             array('cover_image_url', 'imageUrl', 'proyectoImageUrl'),
-            array('cover_image_media', 'interior_image_media')
+            array('cover_image_media')
         );
         $interior_image = $this->extract_image_url(
             $item,
-            array('interior_image_url', 'detailImageUrl', 'salesforce_interior_image_url'),
-            array('interior_image_media', 'cover_image_media')
+            array('salesforce_interior_image_url', 'interior_image_url', 'foto_interior', 'interior_image', 'interiorImageUrl', 'detailImageUrl'),
+            array('interior_image_media'),
+            $cover_image
         );
 
         $nombre = sanitize_text_field((string) ($item['name'] ?? ''));
@@ -550,12 +551,12 @@ class Ileben_Api_Client
         );
     }
 
-    private function extract_image_url($item, $direct_keys, $media_keys)
+    private function extract_image_url($item, $direct_keys, $media_keys, $exclude_url = '')
     {
         $keys = is_array($direct_keys) ? $direct_keys : array($direct_keys);
         foreach ($keys as $direct_key) {
             $direct_url = esc_url_raw((string) ($item[$direct_key] ?? ''));
-            if ($direct_url !== '') {
+            if ($direct_url !== '' && ($exclude_url === '' || $direct_url !== $exclude_url)) {
                 return $direct_url;
             }
         }
@@ -576,7 +577,7 @@ class Ileben_Api_Client
 
             foreach ($candidates as $candidate) {
                 $candidate = esc_url_raw($candidate);
-                if ($candidate !== '') {
+                if ($candidate !== '' && ($exclude_url === '' || $candidate !== $exclude_url)) {
                     return $candidate;
                 }
             }

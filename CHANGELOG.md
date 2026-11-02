@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.5] - 2026-11-02
+
+### Fixed
+- Priorización directa de `salesforce_interior_image_url` en `Ileben_Api_Client::map_api_item` para asegurar la captura de la lámina interior de la planta.
+- Prevención de contaminación de imagen interior: se excluye la URL de portada/fachada (`$cover_image`) cuando `detailImageUrl` hace fallback a la portada en la API externa.
+- Eliminación de fallback de `cover_image_media` en la extracción de imagen interior para evitar duplicación de imágenes.
+- Soporte en `Ileben_Api_Repository::sanitize_data` para resolver `foto_interior` y `foto_portada` desde campos de API (`salesforce_interior_image_url`, `interior_image_url`, `cover_image_url`).
+- Fallback en shortcode `map_showcase_item`: si una planta no posee foto de portada pero sí interior, prioriza la imagen interior antes del logotipo genérico.
+
 ## [0.2.4] - 2026-09-22
 
 ### Added
