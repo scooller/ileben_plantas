@@ -321,6 +321,135 @@ class Ileben_Api_Repository
         return $wpdb->get_row($sql, ARRAY_A);
     }
 
+    public function find_cfdb7_submissions_for_contact($contact_id)
+    {
+        global $wpdb;
+
+        $contact = $this->find_contact_sync_log((int) $contact_id);
+        if (! is_array($contact) || empty($contact)) {
+            return array('error' => 'No se encontró el envío de contacto.', 'candidates' => array());
+        }
+
+        $form_id = (int) ($contact['form_id'] ?? 0);
+        $email = strtolower(trim((string) ($contact['contact_email'] ?? '')));
+        $created_at = strtotime((string) ($contact['created_at'] ?? ''));
+        if (! $form_id || $email === '' || $created_at === false) {
+            return array('error' => 'El registro no tiene formulario, email o fecha para buscar en CFDB7.', 'candidates' => array());
+        }
+
+        $cfdb = apply_filters('cfdb7_database', $wpdb);
+        $table_name = $cfdb->prefix . 'db7_forms';
+        $table_exists = $cfdb->get_var($cfdb->prepare('SHOW TABLES LIKE %s', $cfdb->esc_like($table_name)));
+        if ($table_exists !== $table_name) {
+            return array('error' => 'No se encontró la tabla de CFDB7. Verifica que el plugin esté instalado y activo.', 'candidates' => array());
+        }
+
+        $from = date('Y-m-d H:i:s', $created_at - 600);
+        $to = date('Y-m-d H:i:s', $created_at + 600);
+        // ponytail: cap at 100 matches; use manual CFDB7 recovery if a form exceeds this volume.
+        $sql = $cfdb->prepare(
+            "SELECT form_id, form_value, form_date FROM {$table_name} WHERE form_post_id = %d AND form_date BETWEEN %s AND %s ORDER BY form_date DESC LIMIT 101",
+            $form_id,
+            $from,
+            $to
+        );
+        $rows = $cfdb->get_results($sql, ARRAY_A);
+        if ($cfdb->last_error) {
+            error_log('[ileben-api] CFDB7 recovery query failed: ' . $cfdb->last_error);
+            return array('error' => 'No se pudieron consultar los envíos de CFDB7.', 'candidates' => array());
+        }
+        if (count((array) $rows) > 100) {
+            return array('error' => 'Hay más de 100 coincidencias. Reduce el rango temporal o recupera el registro manualmente desde CFDB7.', 'candidates' => array());
+        }
+
+        $candidates = array();
+        foreach ((array) $rows as $row) {
+            $serialized = (string) ($row['form_value'] ?? '');
+            if (! is_serialized($serialized)) {
+                continue;
+            }
+
+            $submission = unserialize($serialized, array('allowed_classes' => false));
+            if (! is_array($submission)) {
+                continue;
+            }
+
+            $fields = $this->normalize_cfdb7_fields($submission);
+            $submission_email = strtolower(trim((string) ($fields['email'] ?? '')));
+            if ($submission_email === '' || $submission_email !== $email) {
+                continue;
+            }
+
+            $candidates[] = array(
+                'id' => (int) ($row['form_id'] ?? 0),
+                'date' => (string) ($row['form_date'] ?? ''),
+                'fields' => $fields,
+                'channel' => sanitize_text_field((string) ($submission['channel'] ?? $submission['_channel'] ?? '')),
+                'turnstile_token' => sanitize_text_field((string) ($submission['turnstile_token'] ?? $submission['cf-turnstile-response'] ?? '')),
+            );
+        }
+
+        return array('error' => '', 'candidates' => $candidates);
+    }
+
+    public function restore_contact_sync_payload_from_cfdb7($contact_id, $cfdb7_submission_id)
+    {
+        $contact = $this->find_contact_sync_log((int) $contact_id);
+        $matches = $this->find_cfdb7_submissions_for_contact((int) $contact_id);
+        if (! empty($matches['error'])) {
+            return array('success' => false, 'message' => $matches['error']);
+        }
+
+        $candidate = null;
+        foreach ($matches['candidates'] as $match) {
+            if ((int) $match['id'] === (int) $cfdb7_submission_id) {
+                $candidate = $match;
+                break;
+            }
+        }
+        if ($candidate === null) {
+            return array('success' => false, 'message' => 'El envío seleccionado ya no coincide con este contacto.');
+        }
+
+        $payload = json_decode((string) ($contact['payload_json'] ?? '{}'), true);
+        if (! is_array($payload)) {
+            $payload = array();
+        }
+        $fields = isset($payload['fields']) && is_array($payload['fields']) ? $payload['fields'] : array();
+        $added = 0;
+        foreach ($candidate['fields'] as $key => $value) {
+            if (! array_key_exists($key, $fields)) {
+                $fields[$key] = $value;
+                $added++;
+            }
+        }
+
+        if (empty($payload['channel']) && $candidate['channel'] !== '' && empty($contact['channel'])) {
+            $payload['channel'] = $candidate['channel'];
+        } elseif (empty($payload['channel']) && ! empty($contact['channel'])) {
+            $payload['channel'] = $contact['channel'];
+        }
+        if (empty($payload['turnstile_token']) && $candidate['turnstile_token'] !== '') {
+            $payload['turnstile_token'] = $candidate['turnstile_token'];
+        }
+
+        if ($added === 0) {
+            return array('success' => false, 'message' => 'No hay campos faltantes para recuperar; no se modificó el registro.');
+        }
+
+        $payload['fields'] = $fields;
+        $saved = $this->save_contact_sync_log(array(
+            'id' => (int) $contact_id,
+            'channel' => $payload['channel'] ?? ($contact['channel'] ?? ''),
+            'payload_json' => wp_json_encode($payload),
+        ));
+        if ($saved === false) {
+            return array('success' => false, 'message' => 'No se pudo guardar la información recuperada.');
+        }
+
+        return array('success' => true, 'added_count' => $added);
+    }
+
     public function increment_contact_sync_retry($id)
     {
         global $wpdb;
@@ -633,6 +762,56 @@ class Ileben_Api_Repository
             'retries' => max(0, (int) ($data['retries'] ?? 0)),
             'remote_submission_id' => max(0, (int) ($data['remote_submission_id'] ?? 0)),
         );
+    }
+
+    private function normalize_cfdb7_fields($submission)
+    {
+        $fields = array();
+        foreach ($submission as $key => $value) {
+            $key = sanitize_key((string) $key);
+            if ($key === '' || $key === 'cfdb7_status' || $key === 'channel' || $key === '_channel' || $key === 'turnstile_token' || $key === 'cf-turnstile-response' || strpos($key, '_wpcf7') === 0) {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $values = array();
+                foreach ($value as $item) {
+                    if (is_scalar($item) || $item === null) {
+                        $values[] = $this->normalize_cfdb7_value($item);
+                    }
+                }
+                $fields[$key] = implode(', ', $values);
+            } elseif (is_scalar($value) || $value === null) {
+                $fields[$key] = $this->normalize_cfdb7_value($value);
+            }
+        }
+
+        $aliases = array(
+            'name' => array('nombre', 'your-name'),
+            'email' => array('correo', 'your-email'),
+            'message' => array('mensaje', 'your-message'),
+            'phone' => array('telefono', 'fono', 'celular', 'whatsapp', 'your-phone'),
+            'comuna' => array('commune', 'district', 'project_commune', 'your-comuna', 'your-commune', 'select-comuna'),
+            'proyecto' => array('project', 'project_name', 'nombre_proyecto', 'your-proyecto', 'your-project', 'select-proyecto', 'nombre-proyecto'),
+        );
+        foreach ($aliases as $target => $source_keys) {
+            if (empty($fields[$target])) {
+                foreach ($source_keys as $source_key) {
+                    if (! empty($fields[$source_key])) {
+                        $fields[$target] = $fields[$source_key];
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $fields;
+    }
+
+    private function normalize_cfdb7_value($value)
+    {
+        $value = html_entity_decode((string) $value, ENT_QUOTES, get_bloginfo('charset'));
+        return sanitize_text_field($value);
     }
 
     private function get_formats($payload)

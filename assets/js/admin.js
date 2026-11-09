@@ -60,7 +60,7 @@ function ilebenEditContactModal(button) {
         });
 
         var fieldsHtml = missingPayload
-            ? '<div class="alert alert-warning" role="alert">No se guardaron los datos originales completos. Revisa y completa los campos antes de reintentar; los campos personalizados no se pueden recuperar.</div>'
+            ? '<div class="alert alert-warning" role="alert">No se guardaron los datos originales completos. Revisa y completa los campos antes de reintentar; puedes agregar manualmente los campos perdidos.</div>'
             : '';
 
         // Crear un campo para cada propiedad en fields
@@ -76,6 +76,7 @@ function ilebenEditContactModal(button) {
 
         document.getElementById('editContactId').value = contactId;
         document.getElementById('editContactFields').innerHTML = fieldsHtml;
+        document.getElementById('editContactExtraFields').innerHTML = '';
 
         console.log('[ileben-api] Abriendo modal');
 
@@ -127,6 +128,49 @@ function attachContactListeners() {
         });
         button.dataset.listenerAdded = 'true';
     });
+
+    var addFieldButton = document.getElementById('addContactExtraField');
+    var extraFields = document.getElementById('editContactExtraFields');
+    if (addFieldButton && extraFields) {
+        var nextFieldId = 0;
+        addFieldButton.addEventListener('click', function() {
+            var id = nextFieldId++;
+            extraFields.insertAdjacentHTML('beforeend',
+                '<div class="row g-2 align-items-end mb-3">' +
+                '<div class="col"><label class="form-label" for="extraName' + id + '">Nombre del campo</label>' +
+                '<input class="form-control" id="extraName' + id + '" name="extra_name[]" pattern="[a-z0-9_-]+" required aria-describedby="extraFieldHelp"></div>' +
+                '<div class="col"><label class="form-label" for="extraValue' + id + '">Valor</label>' +
+                '<input class="form-control" id="extraValue' + id + '" name="extra_value[]"></div>' +
+                '<div class="col-auto"><button type="button" class="btn btn-outline-danger remove-extra-field" aria-label="Quitar campo adicional">Quitar</button></div></div>');
+            document.getElementById('extraName' + id).focus();
+        });
+        extraFields.addEventListener('click', function(event) {
+            if (event.target.matches('.remove-extra-field')) {
+                event.target.closest('.row').remove();
+                addFieldButton.focus();
+            }
+        });
+        extraFields.addEventListener('input', function(event) {
+            if (event.target.name === 'extra_name[]') {
+                event.target.setCustomValidity('');
+            }
+        });
+        document.getElementById('ilebenContactEditForm').addEventListener('submit', function(event) {
+            var names = Object.create(null);
+            document.querySelectorAll('#editContactFields input[name^="field_"]').forEach(function(input) {
+                names[input.name.slice(6)] = true;
+            });
+            extraFields.querySelectorAll('input[name="extra_name[]"]').forEach(function(input) {
+                var name = input.value;
+                var reserved = ['channel', '_channel', 'turnstile_token', 'cf-turnstile-response'].indexOf(name) !== -1 || name.indexOf('_wpcf7') === 0;
+                input.setCustomValidity(names[name] || reserved ? 'Este nombre ya existe o esta reservado.' : '');
+                names[name] = true;
+            });
+            if (!this.reportValidity()) {
+                event.preventDefault();
+            }
+        });
+    }
 }
 
 // ============================================================================

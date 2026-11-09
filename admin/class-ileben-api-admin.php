@@ -27,6 +27,7 @@ class Ileben_Api_Admin
         add_action('admin_post_ileben_api_download_csv_sample', array($this, 'handle_download_csv_sample'));
         add_action('admin_post_ileben_api_sync_api', array($this, 'handle_sync_api'));
         add_action('admin_post_ileben_api_retry_contact_sync', array($this, 'handle_retry_contact_sync'));
+        add_action('admin_post_ileben_api_recover_contact_payload', array($this, 'handle_recover_contact_payload'));
         add_action('admin_post_ileben_api_sync_site_config', array($this, 'handle_sync_site_config'));
         add_action('admin_post_ileben_api_save_settings', array($this, 'handle_save_settings'));
         add_action('admin_post_ileben_api_toggle_favicon', array($this, 'handle_toggle_favicon'));
@@ -1011,12 +1012,55 @@ if (typeof jQuery !== 'undefined') {
         $states = $this->repository->get_contact_sync_states();
         $result = $this->repository->query_contact_sync_logs($filters, $page, 20);
         $stats = $this->repository->get_contact_sync_stats();
+        $recovery_id = isset($_GET['recover_id']) ? absint($_GET['recover_id']) : 0;
+        $recovery_result = $recovery_id ? $this->repository->find_cfdb7_submissions_for_contact($recovery_id) : null;
 
         ob_start();
     ?>
         <div class="wrap ileben-admin" id="ilebenContactSyncWrap" data-status="<?php echo esc_attr($filters['status']); ?>" data-channel="<?php echo esc_attr($filters['channel']); ?>" data-email="<?php echo esc_attr($filters['email']); ?>" data-date-from="<?php echo esc_attr($filters['date_from']); ?>" data-date-to="<?php echo esc_attr($filters['date_to']); ?>" data-total="<?php echo (int) $result['total']; ?>" data-page-items="<?php echo count($result['items']); ?>">
             <h1 class="mb-3">Sync Contactos API</h1>
             <?php $this->render_flash(); ?>
+
+            <?php if ($recovery_id && is_array($recovery_result)): ?>
+                <div class="card border-warning mb-4">
+                    <div class="card-body">
+                        <h2 class="h5">Seleccionar envío de CFDB7</h2>
+                        <p class="text-muted">Se muestran coincidencias del mismo formulario y email dentro de 10 minutos. Solo se agregarán campos que falten; los valores existentes no se reemplazan.</p>
+                        <?php if (! empty($recovery_result['error'])): ?>
+                            <div class="alert alert-danger mb-0"><?php echo esc_html($recovery_result['error']); ?></div>
+                        <?php elseif (empty($recovery_result['candidates'])): ?>
+                            <div class="alert alert-warning mb-0">No se encontraron envíos coincidentes en CFDB7.</div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr><th>CFDB7 ID</th><th>Fecha</th><th>Nombre</th><th>Proyecto</th><th>Acción</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($recovery_result['candidates'] as $candidate): ?>
+                                            <tr>
+                                                <td><?php echo (int) $candidate['id']; ?></td>
+                                                <td><?php echo esc_html($candidate['date']); ?></td>
+                                                <td><?php echo esc_html((string) ($candidate['fields']['name'] ?? $candidate['fields']['nombre'] ?? '')); ?></td>
+                                                <td><?php echo esc_html((string) ($candidate['fields']['proyecto'] ?? $candidate['fields']['project'] ?? '')); ?></td>
+                                                <td>
+                                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                                        <input type="hidden" name="action" value="ileben_api_recover_contact_payload" />
+                                                        <input type="hidden" name="id" value="<?php echo (int) $recovery_id; ?>" />
+                                                        <input type="hidden" name="cfdb7_form_id" value="<?php echo (int) $candidate['id']; ?>" />
+                                                        <?php wp_nonce_field('ileben_api_recover_contact_payload'); ?>
+                                                        <button class="btn btn-sm btn-warning" type="submit">Usar este envío</button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
 
             <div class="card mb-4">
                 <div class="card-body">
@@ -1166,6 +1210,12 @@ if (typeof jQuery !== 'undefined') {
                                         <td><?php echo (int) ($item['response_code'] ?? 0); ?></td>
                                         <td><?php echo (int) ($item['retries'] ?? 0); ?></td>
                                         <td>
+                                            <form class="mb-1" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                                <input type="hidden" name="action" value="ileben_api_recover_contact_payload" />
+                                                <input type="hidden" name="id" value="<?php echo (int) ($item['id'] ?? 0); ?>" />
+                                                <?php wp_nonce_field('ileben_api_recover_contact_payload'); ?>
+                                                <button class="btn btn-sm btn-outline-warning" type="submit">Recuperar CFDB7</button>
+                                            </form>
                                             <?php if ($status_key !== 'sent'): ?>
                                                 <button
                                                     class="btn btn-sm btn-outline-primary ileben-edit-contact-btn"
@@ -1250,7 +1300,11 @@ if (typeof jQuery !== 'undefined') {
                             </div>
                             <hr class="my-3" />
                             <h6 class="fw-bold mb-3">Campos del contacto</h6>
+                            <p class="form-text">Incluye los campos ocultos guardados del formulario.</p>
                             <div id="editContactFields"></div>
+                            <div id="editContactExtraFields"></div>
+                            <p class="form-text" id="extraFieldHelp">Nombres en minusculas, con letras, numeros, guiones o guiones bajos. No repitas nombres existentes.</p>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="addContactExtraField">Agregar campo</button>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -1658,7 +1712,7 @@ if (typeof jQuery !== 'undefined') {
         $this->redirect_with_flash('ileben-api-sync', 'success', $message);
     }
 
-    public function process_contact_retry($id, $override_channel = null, $override_fields = null)
+    public function process_contact_retry($id, $override_channel = null, $override_fields = null, $extra_names = array(), $extra_values = array())
     {
         $id = (int) $id;
         if (! $id) {
@@ -1688,6 +1742,20 @@ if (typeof jQuery !== 'undefined') {
                     $fields[$clean_key] = sanitize_text_field((string) $fv);
                 }
             }
+        }
+
+        if (! is_array($extra_names) || ! is_array($extra_values) || count($extra_names) !== count($extra_values)) {
+            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'Los campos adicionales no son validos.');
+        }
+        foreach ($extra_names as $index => $name) {
+            if (! is_string($name) || ! isset($extra_values[$index]) || ! is_scalar($extra_values[$index])) {
+                return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'Los campos adicionales no son validos.');
+            }
+            $name = trim($name);
+            if ($name === '' || sanitize_key($name) !== $name || in_array($name, array('channel', '_channel', 'turnstile_token', 'cf-turnstile-response'), true) || strpos($name, '_wpcf7') === 0 || array_key_exists($name, $fields)) {
+                return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'El nombre de un campo adicional es invalido, reservado o duplicado: ' . sanitize_text_field($name));
+            }
+            $fields[$name] = sanitize_text_field((string) $extra_values[$index]);
         }
 
         $turnstile_token = sanitize_text_field((string) ($payload['turnstile_token'] ?? ''));
@@ -1770,13 +1838,64 @@ if (typeof jQuery !== 'undefined') {
             }
         }
 
-        $res = $this->process_contact_retry($id, $override_channel, $override_fields);
+        $extra_names = isset($_POST['extra_name']) ? wp_unslash($_POST['extra_name']) : array();
+        $extra_values = isset($_POST['extra_value']) ? wp_unslash($_POST['extra_value']) : array();
+        $res = $this->process_contact_retry($id, $override_channel, $override_fields, $extra_names, $extra_values);
 
         if (! empty($res['success'])) {
             $this->redirect_with_flash('ileben-api-contact-sync', 'success', 'Reintento enviado correctamente.');
         }
 
         $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El reintento no pudo completarse: ' . ($res['message'] ?? 'Error desconocido.'));
+    }
+
+    public function handle_recover_contact_payload()
+    {
+        $this->guard_permission();
+
+        $id = absint($_POST['id'] ?? 0);
+        check_admin_referer('ileben_api_recover_contact_payload');
+        if (! $id) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'ID de envío inválido.');
+        }
+
+        $lookup = $this->repository->find_cfdb7_submissions_for_contact($id);
+        if (! empty($lookup['error'])) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', $lookup['error']);
+        }
+
+        $candidates = $lookup['candidates'] ?? array();
+        if (empty($candidates)) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'No se encontraron envíos coincidentes en CFDB7.');
+        }
+
+        $selected_id = absint($_POST['cfdb7_form_id'] ?? 0);
+        if (! $selected_id && count($candidates) > 1) {
+            $this->redirect_with_flash(
+                'ileben-api-contact-sync',
+                'info',
+                'Hay varias coincidencias. Selecciona el envío correcto.',
+                array('recover_id' => $id)
+            );
+        }
+
+        if ($selected_id && ! in_array($selected_id, array_map(function ($candidate) {
+            return (int) ($candidate['id'] ?? 0);
+        }, $candidates), true)) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', 'El envío seleccionado no coincide con este contacto.');
+        }
+
+        $candidate_id = $selected_id ?: (int) $candidates[0]['id'];
+        $restored = $this->repository->restore_contact_sync_payload_from_cfdb7($id, $candidate_id);
+        if (empty($restored['success'])) {
+            $this->redirect_with_flash('ileben-api-contact-sync', 'error', $restored['message'] ?? 'No se pudo recuperar el envío.');
+        }
+
+        $this->redirect_with_flash(
+            'ileben-api-contact-sync',
+            'success',
+            sprintf('Se recuperaron %d campo(s) faltantes. No se modificaron los valores existentes.', (int) ($restored['added_count'] ?? 0))
+        );
     }
 
     public function ajax_bulk_update_contact_channel()
@@ -2116,6 +2235,8 @@ if (typeof jQuery !== 'undefined') {
         $classes = 'alert-success';
         if ($type === 'error') {
             $classes = 'alert-danger';
+        } elseif ($type === 'info') {
+            $classes = 'alert-info';
         }
 
         ob_start();
@@ -2125,14 +2246,14 @@ if (typeof jQuery !== 'undefined') {
         echo ob_get_clean();
     }
 
-    private function redirect_with_flash($page, $type, $message)
+    private function redirect_with_flash($page, $type, $message, $extra_args = array())
     {
         $url = add_query_arg(
-            array(
+            array_merge(array(
                 'page' => $page,
                 'ip_type' => $type,
                 'ip_message' => $message,
-            ),
+            ), $extra_args),
             admin_url('admin.php')
         );
 

@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.8] - 2026-11-09
+
+### Added
+- Recuperación de campos faltantes desde CFDB7 por formulario, email y fecha.
+
+### Fixed
+- Manejo seguro cuando CFDB7 no está instalado o no conserva registros coincidentes.
+
+## [0.2.7] - 2026-11-09
+
+### Added
+- Edición de campos ocultos guardados y opción de agregar campos adicionales al reintentar contactos.
+
+### Fixed
+- Conservación de campos vacíos de CF7 en el registro para su posterior edición.
+
 ## [0.2.6] - 2026-11-09
 
 ### Fixed

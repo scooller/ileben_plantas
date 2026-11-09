@@ -7,6 +7,7 @@ const elements = {
     editContactChannel: {},
     editContactId: {},
     editContactFields: {},
+    editContactExtraFields: {},
     ilebenContactEditModal: {}
 };
 let shown = 0;
@@ -55,4 +56,34 @@ assert.match(html, /name="field_proyecto"/);
 html = open('null');
 assert.match(html, /name="field_email" value="ana@example\.com"/);
 assert.equal(shown, 4);
+
+let added = '';
+const handlers = {};
+const input = { focus() { handlers.focused = true; }, name: 'extra_name[]', value: 'extra', setCustomValidity(value) { this.error = value; } };
+elements.addContactExtraField = { addEventListener(type, cb) { handlers.add = cb; }, focus() { handlers.returnedFocus = true; } };
+elements.editContactExtraFields = {
+    insertAdjacentHTML(where, html) { added = html; },
+    addEventListener(type, cb) { handlers[type] = cb; },
+    querySelectorAll() { return [input]; }
+};
+elements.ilebenContactEditForm = { addEventListener(type, cb) { handlers.submit = cb; }, reportValidity() { return !input.error; } };
+context.document.getElementById = id => id === 'extraName0' ? input : elements[id];
+context.document.querySelectorAll = selector => selector === '.ileben-edit-contact-btn' ? [] : [{ name: 'field_custom' }];
+context.attachContactListeners();
+handlers.add();
+assert.match(added, /name="extra_name\[\]"/);
+assert.match(added, /name="extra_value\[\]"/);
+assert.ok(handlers.focused);
+let prevented = false;
+input.value = 'custom';
+handlers.submit.call(elements.ilebenContactEditForm, { preventDefault() { prevented = true; } });
+assert.ok(prevented && input.error);
+input.value = 'nuevo';
+handlers.input({ target: input });
+prevented = false;
+handlers.submit.call(elements.ilebenContactEditForm, { preventDefault() { prevented = true; } });
+assert.equal(prevented, false);
+let removed = false;
+handlers.click({ target: { matches() { return true; }, closest() { return { remove() { removed = true; } }; } } });
+assert.ok(removed && handlers.returnedFocus);
 console.log('contact-retry.js: OK');

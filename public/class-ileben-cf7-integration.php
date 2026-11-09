@@ -74,6 +74,7 @@ class Ileben_Api_CF7_Integration
 
         $channel = $this->resolve_channel($posted_data);
         $fields = $this->build_fields($posted_data);
+        $saved_fields = $this->build_fields($posted_data, true);
         $turnstile_token = $this->resolve_turnstile_token($posted_data);
 
         $validation_error = $this->validate_payload($channel, $fields);
@@ -90,7 +91,7 @@ class Ileben_Api_CF7_Integration
                 'status' => 'validation_error',
                 'contact_name' => $this->pick_first_field_value($fields, array('name', 'nombre')),
                 'contact_email' => $this->pick_first_field_value($fields, array('email', 'correo')),
-                'payload_json' => wp_json_encode(array('channel' => $channel, 'fields' => $fields)),
+                'payload_json' => wp_json_encode(array('channel' => $channel, 'fields' => $saved_fields)),
                 'response_code' => 422,
                 'response_body' => '',
                 'error_message' => $validation_error,
@@ -116,6 +117,9 @@ class Ileben_Api_CF7_Integration
             error_log('[ileben-api] CF7 Form #' . $form_id . ' (' . $form_title . ') Status=' . $status . ', Code=' . (int) ($result['status_code'] ?? 0) . ', Error: ' . $error_message);
         }
 
+        $saved_payload = $result['request_payload'] ?? array('channel' => $channel, 'fields' => $fields);
+        $saved_payload['fields'] = array_merge($saved_fields, $saved_payload['fields'] ?? array());
+
         $this->repository->save_contact_sync_log(array(
             'form_id' => $form_id,
             'form_title' => $form_title,
@@ -123,7 +127,7 @@ class Ileben_Api_CF7_Integration
             'status' => $status,
             'contact_name' => $this->pick_first_field_value($fields, array('name', 'nombre')),
             'contact_email' => $this->pick_first_field_value($fields, array('email', 'correo')),
-            'payload_json' => wp_json_encode($result['request_payload'] ?? array('channel' => $channel, 'fields' => $fields)),
+            'payload_json' => wp_json_encode($saved_payload),
             'response_code' => (int) ($result['status_code'] ?? 0),
             'response_body' => (string) ($result['raw_body'] ?? ''),
             'error_message' => $error_message,
@@ -149,7 +153,7 @@ class Ileben_Api_CF7_Integration
         return $token;
     }
 
-    private function build_fields($posted_data)
+    private function build_fields($posted_data, $include_empty = false)
     {
         $fields = array();
 
@@ -164,7 +168,7 @@ class Ileben_Api_CF7_Integration
             }
 
             $clean = sanitize_text_field((string) $value);
-            if ($clean === '') {
+            if ($clean === '' && ! $include_empty) {
                 continue;
             }
 
