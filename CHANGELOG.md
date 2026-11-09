@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.6] - 2026-11-09
+
+### Fixed
+- Conservación del payload de contactos cuando falta configurar el endpoint.
+- Formulario de reintento para registros sin payload y campos obligatorios ausentes.
+
 ## [0.2.5] - 2026-11-02
 
 ### Fixed
@@ -27,4 +33,3 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Actualización de versión del plugin a 0.2.4 en cabecera de plugin y constante `ILEBEN_API_VERSION`.
 - Centralización del procesamiento de reintentos de contactos en `process_contact_retry` en `Ileben_Api_Admin`, asegurando la actualización persistente de `channel` y `payload_json`.
 - Estilos de administración en `admin.css` para barra de acciones masivas y visualización de canales.
-

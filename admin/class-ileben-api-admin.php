@@ -143,11 +143,13 @@ class Ileben_Api_Admin
 
         wp_enqueue_media();
 
+        $admin_js_path = ILEBEN_API_PATH . 'assets/js/admin.js';
+        $admin_js_version = file_exists($admin_js_path) ? (string) filemtime($admin_js_path) : ILEBEN_API_VERSION;
         wp_enqueue_script(
             'ileben-api-admin',
             ILEBEN_API_URL . 'assets/js/admin.js',
             array('jquery', 'ileben-api-bootstrap'),
-            ILEBEN_API_VERSION,
+            $admin_js_version,
             true
         );
 
@@ -1242,7 +1244,7 @@ if (typeof jQuery !== 'undefined') {
 
                         <div class="modal-body">
                             <div class="mb-3">
-                                <label class="form-label fw-bold">Canal de contacto</label>
+                                <label class="form-label fw-bold" for="editContactChannel">Canal de contacto</label>
                                 <input type="text" class="form-control" name="channel" id="editContactChannel" placeholder="ej: sale, rent, info" required />
                                 <div class="form-text">Identificador del canal requerido por el API.</div>
                             </div>
@@ -1690,9 +1692,16 @@ if (typeof jQuery !== 'undefined') {
 
         $turnstile_token = sanitize_text_field((string) ($payload['turnstile_token'] ?? ''));
 
-        if ($channel === '' || empty($fields)) {
-            error_log('[ileben-api] Retry ' . $id . ': Payload insuficiente. Channel: ' . $channel . ', Fields: ' . wp_json_encode($fields));
-            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'El payload guardado no tiene datos suficientes para reintentar.');
+        $has_field_value = false;
+        foreach ($fields as $value) {
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                $has_field_value = true;
+                break;
+            }
+        }
+        if ($channel === '' || ! $has_field_value) {
+            error_log('[ileben-api] Retry ' . $id . ': Payload insuficiente.');
+            return array('success' => false, 'status' => 'error', 'status_code' => 0, 'message' => 'El payload guardado no tiene datos suficientes para reintentar. Edita el contacto para completar los campos faltantes.');
         }
 
         error_log('[ileben-api] Retry ' . $id . ': Reenviando con ' . count($fields) . ' campos. Channel: ' . $channel);
@@ -1755,8 +1764,8 @@ if (typeof jQuery !== 'undefined') {
             if (strpos($post_key, 'field_') === 0) {
                 $field_name = substr($post_key, 6); // Quitar prefijo "field_"
                 $field_name = sanitize_key($field_name);
-                if ($field_name !== '') {
-                    $override_fields[$field_name] = sanitize_text_field((string) $post_value);
+                if ($field_name !== '' && is_scalar($post_value)) {
+                    $override_fields[$field_name] = sanitize_text_field((string) wp_unslash($post_value));
                 }
             }
         }

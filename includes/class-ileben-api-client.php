@@ -191,17 +191,6 @@ class Ileben_Api_Client
     {
         $settings = $this->get_settings();
 
-        if (empty($settings['api_endpoint'])) {
-            return array(
-                'success' => false,
-                'status_code' => 0,
-                'message' => 'Debes configurar el endpoint API en la configuracion del plugin.',
-                'errors' => array(),
-                'data' => array(),
-                'request_payload' => array(),
-            );
-        }
-
         $channel = sanitize_text_field((string) $channel);
         $fields = $this->normalize_contact_submission_fields(is_array($fields) ? $fields : array());
 
@@ -213,6 +202,17 @@ class Ileben_Api_Client
         $turnstile_token = sanitize_text_field((string) $turnstile_token);
         if ($turnstile_token !== '') {
             $payload['turnstile_token'] = $turnstile_token;
+        }
+
+        if (empty($settings['api_endpoint'])) {
+            return array(
+                'success' => false,
+                'status_code' => 0,
+                'message' => 'Debes configurar el endpoint API en la configuracion del plugin.',
+                'errors' => array(),
+                'data' => array(),
+                'request_payload' => $payload,
+            );
         }
 
         $url = $this->build_request_url($settings['api_endpoint'], 'contact-submissions', '');

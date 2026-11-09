@@ -2,7 +2,7 @@
 
 Plugin de WordPress para gestionar plantas de edificios (departamentos/casas) con almacenamiento local, sincronizacion por API, importacion CSV y visualizacion publica con shortcode tipo carousel showcase.
 
-Version actual: 0.2.5
+Version actual: 0.2.6
 
 ## Novedades recientes
 
@@ -14,6 +14,7 @@ Version actual: 0.2.5
 
 - **Errores detallados en Sync Contactos**: Al reintentar un contacto fallido, ahora muestra errores especificos por campo (ej: "email: Email is required" en lugar de "validation.required").
 - **Modal para editar antes de reintentar**: Botón "Editar y reintentar" abre un formulario donde puedes corregir los datos antes de re-enviar.
+- Si un registro antiguo no conserva su payload, el modal recupera el nombre y correo registrados y permite completar los campos básicos. Los campos personalizados perdidos no se pueden recuperar desde el registro.
 - **Error logging completo**: Todos los errores de CF7 se registran en WordPress logs (`debug.log`) con detalles de HTTP code, campo y mensaje.
 - Integracion con Contact Form 7 para envio de contactos al endpoint `/api/v1/contact-submissions`.
 - Nuevo tag de formulario CF7 para canal: `[ileben_channel "sale"]` (genera hidden `channel`).

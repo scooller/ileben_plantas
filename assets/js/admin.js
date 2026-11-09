@@ -13,8 +13,6 @@ function ilebenEditContactModal(button) {
         var contactName = button.getAttribute('data-contact-name');
         var payloadJson = button.getAttribute('data-payload');
 
-        console.log('[ileben-api] contactId:', contactId, 'email:', contactEmail);
-
         if (!contactId) {
             alert('Error: No se encontro el ID del contacto.');
             return;
@@ -26,8 +24,9 @@ function ilebenEditContactModal(button) {
         } catch (e) {
             console.error('[ileben-api] Error parseando JSON:', e);
         }
-
-        console.log('[ileben-api] payload:', payload);
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            payload = {};
+        }
 
         var contactChannel = button.getAttribute('data-contact-channel') || payload.channel || '';
         var channelInput = document.getElementById('editContactChannel');
@@ -35,20 +34,43 @@ function ilebenEditContactModal(button) {
             channelInput.value = contactChannel;
         }
 
-        var fields = payload.fields || {};
-        if (fields.hasOwnProperty('channel')) {
-            delete fields.channel;
+        var fields = payload && payload.fields && typeof payload.fields === 'object' && !Array.isArray(payload.fields)
+            ? Object.assign({}, payload.fields) : {};
+        delete fields.channel;
+        var missingPayload = Object.keys(fields).length === 0;
+        if (missingPayload) {
+            fields = {
+                name: contactName || '',
+                email: contactEmail || '',
+                phone: '',
+                message: ''
+            };
         }
 
-        var fieldsHtml = '';
+        var requiredFields = {
+            comuna: ['comuna', 'commune', 'district', 'project_commune'],
+            proyecto: ['proyecto', 'project', 'project_name', 'nombre_proyecto']
+        };
+        Object.keys(requiredFields).forEach(function(fieldName) {
+            if (!requiredFields[fieldName].some(function(alias) {
+                return Object.prototype.hasOwnProperty.call(fields, alias);
+            })) {
+                fields[fieldName] = '';
+            }
+        });
+
+        var fieldsHtml = missingPayload
+            ? '<div class="alert alert-warning" role="alert">No se guardaron los datos originales completos. Revisa y completa los campos antes de reintentar; los campos personalizados no se pueden recuperar.</div>'
+            : '';
 
         // Crear un campo para cada propiedad en fields
         Object.keys(fields).forEach(function(fieldName) {
-            var fieldValue = fields[fieldName] || '';
+            var fieldValue = fields[fieldName] == null ? '' : String(fields[fieldName]);
             var fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+            var fieldId = 'editContactField' + Object.keys(fields).indexOf(fieldName);
             fieldsHtml += '<div class="mb-3">' +
-                '<label class="form-label">' + escapeHtml(fieldLabel) + '</label>' +
-                '<input type="text" class="form-control" name="field_' + escapeHtml(fieldName) + '" value="' + escapeHtml(fieldValue) + '" />' +
+                '<label class="form-label" for="' + fieldId + '">' + escapeHtml(fieldLabel) + '</label>' +
+                '<input type="text" class="form-control" id="' + fieldId + '" name="field_' + escapeHtml(fieldName) + '" value="' + escapeHtml(fieldValue) + '" />' +
                 '</div>';
         });
 
@@ -97,11 +119,13 @@ function attachContactListeners() {
     console.log('[ileben-api] Botones encontrados:', editButtons.length);
     
     editButtons.forEach(function(button) {
+        if (button.dataset.listenerAdded) return;
         button.addEventListener('click', function(e) {
             e.preventDefault();
             console.log('[ileben-api] Click en botón de contacto');
             ilebenEditContactModal(this);
         });
+        button.dataset.listenerAdded = 'true';
     });
 }
 
@@ -702,4 +726,3 @@ function attachContactListeners() {
         }
     });
 })(jQuery);
-
