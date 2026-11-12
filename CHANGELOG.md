@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.9] - 2026-11-12
+
+### Added
+- Atributo `imagen="portada|interior"` en el shortcode para elegir la imagen principal, respetado también al filtrar plantas.
+
+### Changed
+- La configuración global de imagen se conserva como valor por defecto cuando no se especifica el atributo.
+
 ## [0.2.8] - 2026-11-09
 
 ### Added

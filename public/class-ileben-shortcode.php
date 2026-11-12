@@ -282,7 +282,8 @@ class Ileben_Api_Shortcode
             array(
                 'por_pagina' => 100,
                 'orderby' => '',
-                'mostrar_filtros' => '1'
+                'mostrar_filtros' => '1',
+                'imagen' => ''
             ),
             $atts,
             'ileben_plantas'
@@ -356,7 +357,7 @@ class Ileben_Api_Shortcode
         }
 
         $default_cotiza_url = $this->get_default_cotiza_url();
-        $show_cover_image = $this->should_show_cover_image();
+        $show_cover_image = $this->should_show_cover_image($atts['imagen']);
         $items_payload = array();
         foreach ($items as $item) {
             $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url, $show_cover_image);
@@ -369,6 +370,7 @@ class Ileben_Api_Shortcode
             data-ajax-url="<?php echo esc_url(admin_url('admin-ajax.php')); ?>"
             data-ajax-nonce="<?php echo esc_attr(wp_create_nonce('ileben_api_filter_plantas')); ?>"
             data-ajax-per-page="100"
+            data-imagen="<?php echo esc_attr($show_cover_image ? 'portada' : 'interior'); ?>"
             data-orderby="<?php echo esc_attr((string) ($filters['orderby'] ?? '')); ?>">
             <div class="ileben-filter-loader" aria-hidden="true">
                 <i class="fa-solid fa-spinner fa-spin-pulse"></i>
@@ -618,7 +620,8 @@ class Ileben_Api_Shortcode
         $paged_items = array_slice($items, $offset, $per_page);
 
         $default_cotiza_url = $this->get_default_cotiza_url();
-        $show_cover_image = $this->should_show_cover_image();
+        $image_mode = sanitize_text_field(wp_unslash($_POST['imagen'] ?? ''));
+        $show_cover_image = $this->should_show_cover_image($image_mode);
         $items_payload = array();
         foreach ($paged_items as $item) {
             $items_payload[] = $this->map_showcase_item($item, $default_cotiza_url, $show_cover_image);
@@ -769,8 +772,16 @@ class Ileben_Api_Shortcode
         return $values;
     }
 
-    private function should_show_cover_image()
+    private function should_show_cover_image($image_mode = '')
     {
+        $image_mode = sanitize_key((string) $image_mode);
+        if ($image_mode === 'portada') {
+            return true;
+        }
+        if ($image_mode === 'interior') {
+            return false;
+        }
+
         if (! class_exists('Ileben_Api_Client')) {
             return true;
         }

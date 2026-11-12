@@ -274,7 +274,9 @@ Basico:
 
 Con atributos:
 
-`[ileben_plantas por_pagina="9" orderby="precio_asc" mostrar_filtros="1"]`
+`[ileben_plantas por_pagina="9" orderby="precio_asc" mostrar_filtros="1" imagen="interior"]`
+
+`imagen` acepta `portada` o `interior`. Si se omite, se usa la imagen configurada en **Leben API → Sincronizar API**. Si la imagen elegida no existe, se muestra la otra; si tampoco existe, se usa el logo del plugin.
 
 ## Bootstrap
 
